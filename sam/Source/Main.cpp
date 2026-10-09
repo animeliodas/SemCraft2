@@ -226,6 +226,28 @@ static void SC_Where(SHELL_FUNC_ARGS) {
     (FLOAT)pl.pl_OrientationAngle(1));
 };
 
+// Test hook: the living monsters within 150 m, with their health.
+static void SC_Monsters(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  CPlayerEntities cPlayers;
+  IWorld::GetLocalPlayers(cPlayers);
+  if (cPlayers.Count() == 0) return;
+  const FLOAT3D vPlayer = cPlayers.Pointer(0)->GetPlacement().pl_PositionVector;
+
+  INDEX ct = 0;
+  FOREACHINDYNAMICCONTAINER(IWorld::GetWorld()->wo_cenEntities, CEntity, iten) {
+    CEntity *pen = &*iten;
+    if ((pen->GetFlags() & ENF_DELETED) || !(pen->GetFlags() & ENF_ALIVE) || !IsDerivedFromClass(pen, "Enemy Base")) continue;
+    const FLOAT3D vPos = pen->GetPlacement().pl_PositionVector;
+    const FLOAT fDist = (vPos - vPlayer).Length();
+    if (fDist > 150.0f) continue;
+    CPrintF("[SemCraft2] monster %s (%u) health %.1f at %.1f m\n", pen->GetClass()->ec_pdecDLLClass->dec_strName, pen->en_ulID,
+      ((CLiveEntity *)pen)->en_fHealth, fDist);
+    ct++;
+  }
+  CPrintF("[SemCraft2] monsters: %d\n", ct);
+};
+
 // Screenshot of the next finished frame (Sam + Minecraft) as a .bmp.
 static void SC_Shot(SHELL_FUNC_ARGS) {
   BEGIN_SHELL_FUNC;
@@ -319,6 +341,7 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_SpawnSam", "CTString", &SC_SpawnSam);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Probe", "void", &SC_Probe);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Where", "void", &SC_Where);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Monsters", "void", &SC_Monsters);
 
   const char *strDev = getenv("SEMCRAFT2_DEV");
   _bDevHook = strDev != NULL && strDev[0] == '1';

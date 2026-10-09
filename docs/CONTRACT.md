@@ -40,12 +40,26 @@ Sam → MC
   loads (and again on reconnect).
 - `{"t":"state","hp":f,"armor":f,"alive":b,"inGame":b,"build":b}` 5 times a second.
 - `{"t":"key","k":"attack"|"use"|"pick"|"drop","down":b}`, `{"t":"slot","n":0..8}`, `{"t":"scroll","d":±1}`.
-- `{"t":"shot","o":[x,y,z],"d":[x,y,z],"w":"minigun","dmg":f,"n":rays,"spread":deg}` Sam hitscan fire.
-- `{"t":"boom","p":[x,y,z],"r":radius,"dmg":f,"src":"rocket"}` Sam explosion.
+- `{"t":"build","on":b}` build mode (mouse and number keys go to MC).
+- `{"t":"shot","o":[x,y,z],"d":[x,y,z],"dmg":f,"n":rays,"spread":deg[,"range":m]}` Sam hitscan fire (knife and
+  chainsaw: range 3). MC hurts the first mob along each ray, or wears down the first non-shell block (cracks; breaks
+  at 15 + 50 × hardness Sam damage, glass at once, TNT is lit).
+- `{"t":"proj","l":[[id,x,y,z,radius,dmg,break,flame],...]}` Sam projectiles in flight, every tick.
+- `{"t":"boom","p":[x,y,z],"r":radius,"dmg":f,"break":b,"src":"rocket"|"grenade"|"flame"|...}` a tracked projectile
+  is gone (exploded): MC hurts mobs in the radius, explodes blocks if `break`, a flame sets fire.
+- `{"t":"actors","l":[[id,x,feetY,z,height,width,health],...]}` Sam monsters within 96 m, every 2 ticks.
+- `{"t":"cmd","c":"..."}`, `{"t":"status"}`, `{"t":"spawn",...}`, `{"t":"pillar",...}` dev/test hooks.
 
 MC → Sam
 - `{"t":"hello","v":1,"shm":"Local\\SemCraft2Frame","pid":N}` on connect.
-- `{"t":"hurt","d":samHp,"src":"zombie","from":[x,y,z]}` MC damage to the player (Sam coords, Sam hp units).
+- `{"t":"hurt","d":samHp,"src":"zombie","from":[x,y,z]}` MC damage to the player (Sam coords, Sam hp units); only
+  damage with an entity source, explosions and fire.
+- `{"t":"push","v":[x,y,z]}` a MC explosion's knockback on the player, as Sam m/s (×30 of MC blocks/tick, ≤40);
+  Sam gives it to its player as an impulse.
+- `{"t":"projhit","id":N}` a Sam projectile hit a MC mob and exploded there: Sam removes its copy quietly.
+- `{"t":"actorhit","id":N,"d":samHp,"boom":b,"from":"zombie"}` a MC hit on a Sam monster's proxy.
+- `{"t":"blocks","set":[x,y,z,...],"clear":[...]}` solid MC blocks appeared / went (Sam coords of minimum corners);
+  Sam keeps invisible colliding block models for them.
 - `{"t":"level_ready","hash":"<hex>","blocks":N}` when the shell for a level is built.
 - `{"t":"log","m":"..."}` diagnostics printed to Sam's console.
 

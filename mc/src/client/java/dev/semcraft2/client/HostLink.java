@@ -88,7 +88,7 @@ public final class HostLink extends WebSocketServer {
 					m.has("n") ? m.get("n").getAsInt() : 1, m.has("spread") ? m.get("spread").getAsFloat() : 0.0F,
 					m.has("range") ? m.get("range").getAsDouble() : 160.0);
 				case "boom" -> Combat.boom(doubles(m.getAsJsonArray("p")), m.get("r").getAsFloat(), m.get("dmg").getAsFloat(),
-					m.has("break") && m.get("break").getAsBoolean());
+					m.has("break") && m.get("break").getAsBoolean(), m.has("src") ? m.get("src").getAsString() : "");
 				case "actors" -> {
 					JsonArray l = m.getAsJsonArray("l");
 					double[][] list = new double[l.size()][];

@@ -42,6 +42,8 @@ struct Hurt {
 };
 
 static std::deque<Hurt> _aHurts;
+// Minecraft explosions' knockback for Sam's player, m/s (the next simulation tick gives it)
+static std::deque<FLOAT3D> _avPushes;
 static levelx::Exported _level;
 static BOOL _bLevelSent = FALSE;
 static INDEX _iLinkGeneration = -1;
@@ -159,6 +161,7 @@ void OnWorldLoad(CWorld *pwo, const CTFileName &fnmWorld) {
 void OnGameStop(void) {
   SetBuildMode(FALSE);
   _aHurts.clear();
+  _avPushes.clear();
   weapons::Reset();
   actors::Reset();
   blocks::Reset(FALSE);
@@ -297,6 +300,15 @@ static BOOL SafeInflict(CEntity *penPlayer, INDEX iType, FLOAT fDamage, const FL
   }
 };
 
+static BOOL SafePush(CEntity *penPlayer, const FLOAT3D &vSpeed) {
+  __try {
+    ((CMovableEntity *)penPlayer)->GiveImpulseTranslationAbsolute(vSpeed);
+    return TRUE;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return FALSE;
+  }
+};
+
 static void Handle(const std::string &strMsg) {
   std::string strType;
   if (!json::GetString(strMsg, "t", strType)) return;
@@ -332,6 +344,12 @@ static void Handle(const std::string &strMsg) {
     json::GetNumber(strMsg, "d", dDamage);
     json::GetBool(strMsg, "boom", bBoom);
     if (dDamage > 0) actors::OnHit((ULONG)dId, (FLOAT)dDamage, bBoom);
+
+  } else if (strType == "push") {
+    double adV[3] = { 0, 0, 0 };
+    if (json::GetNumbers(strMsg, "v", adV, 3) == 3 && _avPushes.size() < 16) {
+      _avPushes.push_back(FLOAT3D((FLOAT)adV[0], (FLOAT)adV[1], (FLOAT)adV[2]));
+    }
 
   } else if (strType == "projhit") {
     double dId = 0;
@@ -397,8 +415,19 @@ void OnStep(void) {
         break;
       }
     }
+
+    // and its explosions throw him
+    while (!_avPushes.empty() && !_bHurtBroken) {
+      const FLOAT3D v = _avPushes.front();
+      _avPushes.pop_front();
+      if (!SafePush(penPlayer, v)) {
+        _bHurtBroken = TRUE;
+        CPrintF("^cff0000[SemCraft2]^r pushing the player crashed inside the game; Minecraft damage is off for this session\n");
+      }
+    }
   } else {
     _aHurts.clear();
+    _avPushes.clear();
   }
 
   // Sam's guns hurt Minecraft's mobs

@@ -92,9 +92,13 @@ static BOOL CreateBlock(const Key &k) {
   if (pfStretch != NULL) *pfStretch = 1.0f;
   if (piShadows != NULL) *piShadows = 0; // ST_NONE
   *pbColliding = TRUE;
-  *pbActive = FALSE; // drawn by the editor only
+  // a real model, not an editor one: rays (Sam's bullets, monsters' sight) skip editor models outside the editor, and
+  // TSE's ModelHolder2 only collides when active. Its colour mask then hides every surface.
+  *pbActive = TRUE;
 
   pen->Initialize();
+  CModelObject *pmo = pen->GetModelObject();
+  if (pmo != NULL) pmo->mo_ColorMask = 0;
   _mapBlocks[k] = pen;
   _ctCreated++;
   return TRUE;

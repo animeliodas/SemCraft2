@@ -1,6 +1,6 @@
 """Oracle: Minecraft's blocks are solid for Serious Sam's player (both games running, tools/dev.py mc-start, sam tfe).
 
-    uv run -q --with websockets python tools/test_blocks.py [--level 01_Hatshepsut] [--ticks 20]
+    uv run -q --with websockets python tools/test_blocks.py [--game tfe|tse] [--level 01_Hatshepsut] [--ticks 20]
 
 1. restart the level, run forward for TICKS player actions (sc_iTestWalk), measure how far Sam got;
 2. restart, put a stone brick wall 3 blocks ahead in Minecraft (fill), wait until Sam has the block entities, run again.
@@ -19,7 +19,8 @@ import websockets
 
 CMD = Path(tempfile.gettempdir()) / "SemCraft2" / "cmd.txt"
 ROOT = Path(__file__).resolve().parents[2]
-SAM_LOG = ROOT / "Serious Sam Classic The First Encounter" / "SeriousSam_Custom.log"
+GAMES = {"tfe": "Serious Sam Classic The First Encounter", "tse": "Serious Sam Classic The Second Encounter"}
+SAM_LOG = ROOT / GAMES["tfe"] / "SeriousSam_Custom.log"
 
 
 def sam(command: str) -> None:
@@ -67,9 +68,14 @@ async def run(ticks: int) -> float:
 
 async def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--level", default="01_Hatshepsut")
+    ap.add_argument("--game", default="tfe", choices=GAMES)
+    ap.add_argument("--level", default=None, help="default: 01_Hatshepsut (TFE), LevelsMP/1_1_Palenque (TSE)")
     ap.add_argument("--ticks", type=int, default=20)
     a = ap.parse_args()
+    global SAM_LOG
+    SAM_LOG = ROOT / GAMES[a.game] / "SeriousSam_Custom.log"
+    if a.level is None:
+        a.level = "01_Hatshepsut" if a.game == "tfe" else "LevelsMP/1_1_Palenque"
 
     async with websockets.connect("ws://127.0.0.1:25610") as ws:
         await ws.recv()
@@ -112,4 +118,5 @@ async def main() -> None:
         print(("PASS" if ok else "FAIL") + f": free {free:.2f} m, against the wall {walled:.2f} m")
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -170,8 +170,8 @@ void Step(CEntity *penPlayer, void (*pfnSend)(const std::string &)) {
     for (size_t i = 0; i < _aTracked.size(); i++) {
       const Tracked &t = _aTracked[i];
       char strOne[160];
-      _snprintf(strOne, sizeof(strOne), "%s[%u,%.3f,%.3f,%.3f,%.1f,%.1f,%d]", i == 0 ? "" : ",", t.ulId,
-        t.vLast(1), t.vLast(2), t.vLast(3), t.fRadius, t.fDamage, t.bBreak ? 1 : 0);
+      _snprintf(strOne, sizeof(strOne), "%s[%u,%.3f,%.3f,%.3f,%.1f,%.1f,%d,%d]", i == 0 ? "" : ",", t.ulId,
+        t.vLast(1), t.vLast(2), t.vLast(3), t.fRadius, t.fDamage, t.bBreak ? 1 : 0, strcmp(t.strKind, "flame") == 0 ? 1 : 0);
       strOne[sizeof(strOne) - 1] = 0;
       str += strOne;
     }
@@ -212,24 +212,33 @@ void Step(CEntity *penPlayer, void (*pfnSend)(const std::string &)) {
   const FLOAT3D vDir(-m(1, 3), -m(2, 3), -m(3, 3));
   const FLOAT3D vEye = plView.pl_PositionVector;
 
+  // Sam's bullets really start at the gun (offset from the eyes, parallel to the view; the crosshair shows where they
+  // land), and the weapons remember the last one's start (m_vBulletSource): shots go from there when it's sane
+  FLOAT3D vGun = vEye;
+  CEntityProperty *pepSource = IWorld::PropertyForId(LibClassHolder(penWeapons), PROP(CLASS_WEAPONS, 35));
+  if (pepSource != NULL && pepSource->ep_eptType == CEntityProperty::EPT_FLOAT3D) {
+    const FLOAT3D vSource = *(FLOAT3D *)((UBYTE *)penWeapons + pepSource->ep_slOffset);
+    if ((vSource - vEye).Length() < 2.0f) vGun = vSource;
+  }
+
   if (_bHaveLast && iWeapon == _iLastWeapon) {
     INDEX aiUsed[A_COUNT];
     for (INDEX a = 0; a < A_COUNT; a++) aiUsed[a] = Max(_aiLast[a] - aiNow[a], (INDEX)0);
 
     if (iWeapon == W_COLT || iWeapon == W_DOUBLECOLT) {
-      if (aiUsed[A_COLT] > 0) SendShot(pfnSend, vEye, vDir, 10.0f, aiUsed[A_COLT], 0.3f);
+      if (aiUsed[A_COLT] > 0) SendShot(pfnSend, vGun, vDir, 20.0f, aiUsed[A_COLT], 0.3f);
 
     } else if (iWeapon == W_SINGLESHOTGUN) {
-      if (aiUsed[A_SHELLS] > 0) SendShot(pfnSend, vEye, vDir, 10.0f, 7 * aiUsed[A_SHELLS], 4.0f);
+      if (aiUsed[A_SHELLS] > 0) SendShot(pfnSend, vGun, vDir, 10.0f, 7 * aiUsed[A_SHELLS], 4.0f);
 
     } else if (iWeapon == W_DOUBLESHOTGUN) {
-      if (aiUsed[A_SHELLS] > 0) SendShot(pfnSend, vEye, vDir, 10.0f, 7 * aiUsed[A_SHELLS], 6.0f);
+      if (aiUsed[A_SHELLS] > 0) SendShot(pfnSend, vGun, vDir, 10.0f, 7 * aiUsed[A_SHELLS], 6.0f);
 
     } else if (iWeapon == W_TOMMYGUN || iWeapon == W_MINIGUN) {
-      if (aiUsed[A_BULLETS] > 0) SendShot(pfnSend, vEye, vDir, 10.0f, aiUsed[A_BULLETS], 0.8f);
+      if (aiUsed[A_BULLETS] > 0) SendShot(pfnSend, vGun, vDir, 10.0f, aiUsed[A_BULLETS], 0.8f);
 
     } else if (iWeapon == W_SNIPER) {
-      if (aiUsed[A_SNIPER] > 0) SendShot(pfnSend, vEye, vDir, 80.0f, aiUsed[A_SNIPER], 0.0f);
+      if (aiUsed[A_SNIPER] > 0) SendShot(pfnSend, vGun, vDir, 80.0f, aiUsed[A_SNIPER], 0.0f);
     }
 
     // anything that launches projectiles: look for the new ones

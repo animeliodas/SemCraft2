@@ -172,6 +172,7 @@ public final class WorldBridge {
 
 		LevelShell.tick(s);
 		SamMonsters.tick(s);
+		Combat.tick(s.overworld());
 		flushBlocks();
 	}
 
