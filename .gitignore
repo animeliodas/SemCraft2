@@ -1,0 +1,19 @@
+# build outputs
+mc/build/
+mc/.gradle/
+mc/run/
+sam/build/
+sam/dist/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+# never commit game files or extracted assets
+*.gro
+*.wld
+*.tex
+*.mdl
+_local/
+_local/
+mc/run-client.log

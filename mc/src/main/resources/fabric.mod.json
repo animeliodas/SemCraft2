@@ -1,0 +1,25 @@
+{
+	"schemaVersion": 1,
+	"id": "semcraft2",
+	"version": "${version}",
+	"name": "SemCraft 2",
+	"description": "Minecraft inside Serious Sam Classic: Serious Sam's camera drives Minecraft's, Sam's level becomes invisible collision, and Minecraft's picture (colour + depth + HUD) is handed to the Serious Sam plugin to be composited into Sam's frame.",
+	"authors": ["animeliodas"],
+	"contributors": ["Built with Claude Code", "Frame export and camera mixins adapted from universal-modder's MIT minecraft-gta5-passthrough example"],
+	"license": "GPL-2.0-only",
+	"environment": "*",
+	"entrypoints": {
+		"main": ["dev.semcraft2.SemCraft"],
+		"client": ["dev.semcraft2.client.SemCraftClient"]
+	},
+	"mixins": [
+		"semcraft2.mixins.json",
+		{ "config": "semcraft2.client.mixins.json", "environment": "client" }
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
