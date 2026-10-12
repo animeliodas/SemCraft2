@@ -19,7 +19,7 @@ HERE = Path(__file__).resolve().parent
 async def main() -> None:
     out = sys.argv[1]
     game = sys.argv[2] if len(sys.argv) > 2 else "tfe"
-    async with websockets.connect("ws://127.0.0.1:25610", max_size=None) as ws:
+    async with websockets.connect("ws://127.0.0.1:25610", max_size=None, max_queue=None, ping_interval=None) as ws:
         await ws.recv()
         sam("cht_bGod=1;", "cht_bInvisible=1;", "con_iLastLines=0;")
         client = await request(ws, {"t": "status"}, "client")

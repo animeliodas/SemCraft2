@@ -48,7 +48,7 @@ async def main() -> None:
     log = SamLog(a.game)
     results = []
 
-    async with websockets.connect("ws://127.0.0.1:25610", max_size=None) as ws:
+    async with websockets.connect("ws://127.0.0.1:25610", max_size=None, max_queue=None, ping_interval=None) as ws:
         await ws.recv()
         for mode in (int(v) for v in a.modes.split(",")):
             name = "brushes" if mode else "models"

@@ -62,7 +62,7 @@ async def main() -> None:
     ap.add_argument("--no-restart", action="store_true")
     a = ap.parse_args()
 
-    async with websockets.connect("ws://127.0.0.1:25610") as ws:
+    async with websockets.connect("ws://127.0.0.1:25610", max_size=None, max_queue=None, ping_interval=None) as ws:
         await ws.recv()  # hello
         await ws.send(json.dumps({"t": "cmd", "c": "kill @e[type=minecraft:zombie]"}))
         if not a.no_restart:

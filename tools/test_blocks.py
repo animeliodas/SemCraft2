@@ -79,7 +79,7 @@ async def main() -> None:
     if a.level is None:
         a.level = "01_Hatshepsut" if a.game == "tfe" else "LevelsMP/1_1_Palenque"
 
-    async with websockets.connect("ws://127.0.0.1:25610") as ws:
+    async with websockets.connect("ws://127.0.0.1:25610", max_size=None, max_queue=None, ping_interval=None) as ws:
         await ws.recv()
         await ws.send(json.dumps({"t": "cmd", "c": "kill @e[type=minecraft:zombie]"}))
 

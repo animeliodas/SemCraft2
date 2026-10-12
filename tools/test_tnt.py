@@ -38,7 +38,7 @@ async def main() -> None:
     log = SamLog(a.game)
     results = []
 
-    async with websockets.connect("ws://127.0.0.1:25610", max_size=None) as ws:
+    async with websockets.connect("ws://127.0.0.1:25610", max_size=None, max_queue=None, ping_interval=None) as ws:
         await ws.recv()  # hello
         await ws.send(json.dumps({"t": "cmd", "c": "kill @e[type=!minecraft:player]"}))
         if not a.no_restart:

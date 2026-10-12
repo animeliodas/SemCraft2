@@ -8,6 +8,7 @@
 #include "Actors.h"
 #include "Blocks.h"
 #include "Movers.h"
+#include "Glide.h"
 
 #include <Engine/World/WorldRayCasting.h>
 #include <string>
@@ -57,6 +58,7 @@ static ANGLE3D _aFreeze(0, 0, 0);
 static ANGLE3D _aLastRaw(0, 0, 0);
 static BOOL _bHaveLastRaw = FALSE;
 static BOOL _bKeyE = FALSE;
+static BOOL _bBoostKey = FALSE;
 static BOOL _abKeys[256];
 static INDEX _iShowWeaponBefore = -1;
 static ULONG _ulCamFrame = 0;
@@ -183,6 +185,7 @@ void OnGameStop(void) {
   actors::Reset();
   blocks::Reset(FALSE);
   movers::Reset(); // their entity pointers must go before the world does
+  glide::Reset();
 };
 
 // ---------------------------------------------------------------------------------------------------------
@@ -337,6 +340,7 @@ void DevType(const char *strText) {
 };
 
 static void PollInput(void) {
+  if (sc_iDisable & 128) return;
   const BOOL bPlaying = Playing();
 
   if (_bScreen) {
@@ -358,6 +362,13 @@ static void PollInput(void) {
     PollScreen();
     return;
   }
+
+  // gliding with a firework in hand: the right mouse button lights it (one firework goes)
+  const BOOL bBoostKey = bPlaying && !_bBuild && glide::Gliding() && KeyDown(VK_RBUTTON);
+  if (bBoostKey && !_bBoostKey && glide::FireworkInHand() && glide::Boost()) {
+    Send("{\"t\":\"cmd\",\"c\":\"clear @p minecraft:firework_rocket 1\"}");
+  }
+  _bBoostKey = bBoostKey;
 
   // E opens Minecraft's inventory
   const BOOL bKeyE = bPlaying && KeyDown('E');
@@ -407,6 +418,7 @@ FLOAT sc_fTestTurnH = 0.0f, sc_fTestTurnP = 0.0f;
 static ANGLE3D _aTestTurn(0, 0, 0);
 
 void OnPlayerAction(CPlayerAction &pa, BOOL bFresh) {
+  if (sc_iDisable & 64) return;
   // test hooks: hold fire for a number of actions, select a weapon by number (both work with Sam's window in the
   // background, where Sam doesn't read its own input)
   if (sc_iTestFire > 0) {
@@ -419,6 +431,9 @@ void OnPlayerAction(CPlayerAction &pa, BOOL bFresh) {
     _aTestTurn(2) += sc_fTestTurnP;
   }
   pa.pa_aRotation += _aTestTurn;
+
+  // Minecraft's elytra: a jump in the air opens the wings, walking is off while gliding
+  glide::OnAction(pa, bFresh);
 
   // a Minecraft screen open: the mouse moves its cursor instead of the view (actions carry the accumulated rotation,
   // so what the mouse turned while it was open stays taken out from then on)
@@ -531,6 +546,12 @@ static void Handle(const std::string &strMsg) {
     bool bOpen = true;
     if (json::GetBool(strMsg, "open", bOpen) && !bOpen) ScreenClosed(FALSE);
 
+  } else if (strType == "gear") {
+    bool bElytra = false, bFirework = false;
+    json::GetBool(strMsg, "elytra", bElytra);
+    json::GetBool(strMsg, "firework", bFirework);
+    glide::OnGear(bElytra, bFirework);
+
   } else if (strType == "trigger") {
     // Minecraft's redstone reached one of Sam's doors or lifts
     double dMover = -1;
@@ -582,12 +603,16 @@ void OnFrame(void) {
 
 static BOOL _bHurtBroken = FALSE;
 
+// Dev: switch subsystems off to find one at fault (bits: 1 hurts, 2 weapons, 4 monsters, 8 movers, 16 glide, 32 blocks,
+// 64 player-action edits, 128 input)
+INDEX sc_iDisable = 0;
+
 void OnStep(void) {
   _ctTicks++;
   CEntity *penPlayer = LocalPlayer();
 
   // Minecraft's hits land on Sam's player
-  if (penPlayer != NULL && GetGameAPI()->IsGameOn() && !_bHurtBroken && (penPlayer->GetFlags() & ENF_ALIVE)) {
+  if (!(sc_iDisable & 1) && penPlayer != NULL && GetGameAPI()->IsGameOn() && !_bHurtBroken && (penPlayer->GetFlags() & ENF_ALIVE)) {
     const FLOAT3D vPlayer = penPlayer->GetPlacement().pl_PositionVector;
 
     while (!_aHurts.empty()) {
@@ -621,15 +646,20 @@ void OnStep(void) {
 
   // Sam's guns hurt Minecraft's mobs
   if (GetGameAPI()->IsGameOn() && link::Connected()) {
-    weapons::Step(penPlayer, &Send);
+    if (!(sc_iDisable & 2)) weapons::Step(penPlayer, &Send);
     // and Sam's monsters are in Minecraft as stand-ins its mobs hunt
-    actors::Step(penPlayer, &Send);
+    if (!(sc_iDisable & 4)) actors::Step(penPlayer, &Send);
     // and its doors and lifts move there too
-    movers::Step(&Send);
+    if (!(sc_iDisable & 8)) movers::Step(&Send);
+  }
+
+  // Minecraft's elytra on Sam's player
+  if (GetGameAPI()->IsGameOn() && !(sc_iDisable & 16)) {
+    glide::Step(penPlayer);
   }
 
   // and Minecraft's blocks are solid here
-  if (GetGameAPI()->IsGameOn()) blocks::Step();
+  if (GetGameAPI()->IsGameOn() && !(sc_iDisable & 32)) blocks::Step();
 
   // the player's state, 5 times a second
   if (_ctTicks % 4 == 0 && link::Connected()) {
@@ -674,7 +704,7 @@ CTString Status(void) {
   str.PrintF("link: %s (generation %d), level: %s (%d tris, %s), build: %s, cam frames sent: %u; %s",
     link::Connected() ? "connected" : "waiting for Minecraft on 127.0.0.1:25610", link::Generation(),
     _level.bValid ? _level.strName.c_str() : "none", _level.ctTris, _bLevelSent ? "sent" : "not sent",
-    _bBuild ? "on" : "off", _ulCamFrame, (weapons::Status() + "; " + actors::Status() + "; " + blocks::Status() + "; " + movers::Status()).str_String);
+    _bBuild ? "on" : "off", _ulCamFrame, (weapons::Status() + "; " + actors::Status() + "; " + blocks::Status() + "; " + movers::Status() + "; " + glide::Status()).str_String);
   return str;
 };
 

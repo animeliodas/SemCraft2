@@ -55,7 +55,7 @@ class SamLog:
         return self.text()[start:]
 
 
-async def start_level(log: "SamLog", level: str, timeout: float = 120.0) -> None:
+async def start_level(log: "SamLog", level: str, timeout: float = 150.0, skip_intro: bool = True) -> None:
     """StartMap, then get past the level's intro (two clicks skip it) and Netricsa (closed), and wait until the
     player stands in the level."""
     sam(f'StartMap("{level}");')
@@ -67,6 +67,9 @@ async def start_level(log: "SamLog", level: str, timeout: float = 120.0) -> None
         lines = [l for l in out.splitlines() if "where:" in l]
         last = lines[-1] if lines else ""
         if "cinematic" in last:
+            if not skip_intro:
+                await asyncio.sleep(2.0)
+                continue
             sam("sc_iTestFire=2;")
             await asyncio.sleep(0.6)
             sam("sc_iTestFire=2;")
@@ -132,7 +135,7 @@ async def main() -> None:
     log = SamLog(a.game)
     results = []
 
-    async with websockets.connect("ws://127.0.0.1:25610", max_size=None) as ws:
+    async with websockets.connect("ws://127.0.0.1:25610", max_size=None, max_queue=None, ping_interval=None) as ws:
         await ws.recv()  # hello
         await ws.send(json.dumps({"t": "cmd", "c": "kill @e[type=!minecraft:player]"}))
         if not a.no_restart:

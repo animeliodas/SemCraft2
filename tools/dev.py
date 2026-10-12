@@ -3,7 +3,8 @@
     uv run --with pillow --with websockets python tools/dev.py <command> ...
 
 Commands
-    sam <tfe|tse> [level]      start Sam (SEMCRAFT2_DEV=1); after the menu is up, start `level` (e.g. 01_Hatshepsut)
+    sam <tfe|tse> [level]      start Sam (SEMCRAFT2_DEV=1); after the menu is up, start `level` (e.g. 01_Hatshepsut);
+                               `+level` starts it from the command line instead
     cmd <tfe|tse> "<console>"  run a Sam console command (dev hook: %TEMP%/SemCraft2/cmd.txt)
     shot <tfe|tse> <out.png>   Sam's finished frame (Sam + Minecraft) as PNG
     log <tfe|tse> [n]          last n lines of Sam's log
@@ -75,7 +76,16 @@ def start_sam(name: str, level: str | None) -> None:
         log.unlink()
 
     env = dict(os.environ, SEMCRAFT2_DEV="1")
-    p = subprocess.Popen([str(exe)], cwd=str(d / "Bin"), env=env, creationflags=subprocess.DETACHED_PROCESS)
+    args = [str(exe)]
+    if level and level.startswith("+"):
+        # "+name": the level from the command line (StartMap from the menu hangs some levels, e.g. 11_AlleyOfSphinxes)
+        level = level[1:]
+        args += ["+level", f"Levels/{level}.wld" if "/" not in level else f"{level}.wld"]
+        p = subprocess.Popen(args, cwd=str(d / "Bin"), env=env, creationflags=subprocess.DETACHED_PROCESS)
+        print(f"started {exe.name} pid {p.pid} on {args[-1]}")
+        wait_log(name, "[SemCraft2]^r loaded (built", 60)
+        return
+    p = subprocess.Popen(args, cwd=str(d / "Bin"), env=env, creationflags=subprocess.DETACHED_PROCESS)
     print(f"started {exe.name} pid {p.pid}")
     if not wait_log(name, "[SemCraft2]^r loaded (built", 60):
         print("plugin didn't report loading within 60 s; see the log")
@@ -110,7 +120,7 @@ def mc_send(message: str) -> None:
     import websockets
 
     async def run() -> None:
-        async with websockets.connect("ws://127.0.0.1:25610") as ws:
+        async with websockets.connect("ws://127.0.0.1:25610", max_size=None, max_queue=None, ping_interval=None) as ws:
             await ws.send(message)
             end = time.time() + 1.0
             while time.time() < end:

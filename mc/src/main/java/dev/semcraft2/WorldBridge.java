@@ -46,7 +46,10 @@ public final class WorldBridge {
 		"effect give @a minecraft:saturation infinite 0 true",
 		// Sam's levels are big and Sam's camera is at eye height: build where you aim, far away
 		"attribute @p minecraft:block_interaction_range base set 48",
-		"attribute @p minecraft:entity_interaction_range base set 6"
+		"attribute @p minecraft:entity_interaction_range base set 6",
+		// wings for Sam: jump again in the air to glide, a firework in hand + right mouse button to speed up
+		"item replace entity @a armor.chest with minecraft:elytra",
+		"give @a minecraft:firework_rocket 64"
 	);
 
 	/** The build hotbar, given once; after that the player's choices stay (and are topped up, see refill). */
@@ -175,6 +178,7 @@ public final class WorldBridge {
 			mirrorHealth(player);
 		}
 
+		gear(s);
 		LevelShell.tick(s);
 		Movers.tick(s.overworld(), s.getPlayerList().getPlayers().isEmpty() ? null : s.getPlayerList().getPlayers().get(0));
 		SamMonsters.tick(s);
@@ -204,6 +208,28 @@ public final class WorldBridge {
 			player.onUpdateAbilities();
 			SemCraft.LOG.info("inventory {}: {}", open ? "open" : "closed", player.gameMode.getGameModeForPlayer());
 		});
+	}
+
+	private static String lastGear = "";
+	private static int gearIn, gearRepeat;
+
+	/** What Sam's glide needs to know: an elytra on the chest, a firework in hand (sent on change, and every 2 s). */
+	private static void gear(final MinecraftServer s) {
+		if (--gearIn > 0 || s.getPlayerList().getPlayers().isEmpty()) {
+			return;
+		}
+
+		ServerPlayer player = s.getPlayerList().getPlayers().get(0);
+		String now = String.format(Locale.ROOT, "{\"t\":\"gear\",\"elytra\":%b,\"firework\":%b}",
+			player.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST).is(net.minecraft.world.item.Items.ELYTRA),
+			player.getMainHandItem().is(net.minecraft.world.item.Items.FIREWORK_ROCKET));
+		gearIn = 5;
+		// on a change, and every 2 s anyway (Sam may have connected since, or restarted)
+		if (!now.equals(lastGear) || ++gearRepeat >= 8) {
+			gearRepeat = 0;
+			lastGear = now;
+			SemCraft.events.accept(now);
+		}
 	}
 
 	/** Blocks never run out: every stackable thing in the hotbar is topped up to a full stack (whatever the player chose). */

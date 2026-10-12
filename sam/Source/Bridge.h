@@ -43,6 +43,8 @@ BOOL OnChat(const char *strText);
 BOOL ScreenCursor(FLOAT &fX, FLOAT &fY);
 // cursor speed multiplier (persistent console var)
 extern FLOAT sc_fCursorSpeed;
+// dev: subsystems switched off (see Bridge.cpp)
+extern INDEX sc_iDisable;
 // Dev/test: open/close the inventory, click at a point of it (0..1), type text into it.
 void DevScreen(BOOL bOpen);
 void DevClick(FLOAT fX, FLOAT fY, INDEX iButton);

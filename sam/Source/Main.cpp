@@ -9,6 +9,7 @@
 
 #include "Bridge.h"
 #include "Movers.h"
+#include "Glide.h"
 #include "Blocks.h"
 #include "Compositor.h"
 #include "GlDraw.h"
@@ -306,6 +307,12 @@ static void SC_Type(SHELL_FUNC_ARGS) {
   bridge::DevType(strText.str_String);
 };
 
+// Test hook / no-firework boost: Minecraft's firework thrust while gliding.
+static void SC_Boost(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  CPrintF("[SemCraft2] boost: %s\n", glide::Boost() ? "on" : "not gliding");
+};
+
 // Test hook: close Netricsa if it's up (as Escape would), so scripted runs aren't stuck behind it.
 static void SC_CloseNetricsa(SHELL_FUNC_ARGS) {
   BEGIN_SHELL_FUNC;
@@ -481,6 +488,7 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Move", "CTString", &SC_Move);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_BrushInfo", "INDEX", &SC_BrushInfo);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "mc", "CTString", &SC_Mc);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Boost", "void", &SC_Boost);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Inventory", "INDEX", &SC_Inventory);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Click", "CTString", &SC_Click);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Type", "CTString", &SC_Type);
@@ -494,6 +502,9 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   _pShell->DeclareSymbol("persistent user FLOAT sc_fLightMatch;", &compositor::sc_fLightMatch);
   _pShell->DeclareSymbol("persistent user INDEX sc_iBlockBrushes;", &blocks::sc_iBlockBrushes);
   _pShell->DeclareSymbol("persistent user FLOAT sc_fCursorSpeed;", &bridge::sc_fCursorSpeed);
+  _pShell->DeclareSymbol("user INDEX sc_iTestJump;", &glide::sc_iTestJump);
+  _pShell->DeclareSymbol("user INDEX sc_iGlideLog;", &glide::sc_iGlideLog);
+  _pShell->DeclareSymbol("user INDEX sc_iDisable;", &bridge::sc_iDisable);
   _pShell->DeclareSymbol("user INDEX sc_iTestFire;", &bridge::sc_iTestFire);
   _pShell->DeclareSymbol("user INDEX sc_iTestSelect;", &bridge::sc_iTestSelect);
   _pShell->DeclareSymbol("user INDEX sc_iTestWalk;", &bridge::sc_iTestWalk);

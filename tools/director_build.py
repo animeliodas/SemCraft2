@@ -30,7 +30,7 @@ async def main() -> None:
     ap.add_argument("--level", default="01_Hatshepsut")
     a = ap.parse_args()
 
-    async with websockets.connect("ws://127.0.0.1:25610", max_size=None) as ws:
+    async with websockets.connect("ws://127.0.0.1:25610", max_size=None, max_queue=None, ping_interval=None) as ws:
         async def mc(**m):
             await ws.send(json.dumps(m))
 
