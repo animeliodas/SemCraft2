@@ -17,6 +17,8 @@ from pathlib import Path
 
 import websockets
 
+from test_wall import SamLog, clean, start_level
+
 CMD = Path(tempfile.gettempdir()) / "SemCraft2" / "cmd.txt"
 ROOT = Path(__file__).resolve().parents[2]
 GAMES = {"tfe": "Serious Sam Classic The First Encounter", "tse": "Serious Sam Classic The Second Encounter"}
@@ -82,20 +84,17 @@ async def main() -> None:
         await ws.send(json.dumps({"t": "cmd", "c": "kill @e[type=minecraft:zombie]"}))
 
         print("free run:")
-        sam(f'StartMap("{a.level}");')
-        await asyncio.sleep(30)
+        await start_level(SamLog(a.game), a.level)
         sam("cht_bGod=1;")
         client = await request(ws, {"t": "status"}, "client")
         eye, (yaw, _) = client["eye"], client["rot"]
         # clear anything built ahead earlier
         ex, ey, ez = (math.floor(v) for v in eye)
-        await ws.send(json.dumps({"t": "cmd", "c": f"fill {ex - 6} {ey - 3} {ez - 10} {ex + 6} {ey + 3} {ez + 10} air replace minecraft:stone_bricks"}))
-        await asyncio.sleep(1)
+        await clean(ws)
         free = await run(a.ticks)
 
         print("run into a Minecraft wall:")
-        sam(f'StartMap("{a.level}");')
-        await asyncio.sleep(30)
+        await start_level(SamLog(a.game), a.level)
         sam("cht_bGod=1;")
         client = await request(ws, {"t": "status"}, "client")
         eye, (yaw, _) = client["eye"], client["rot"]
@@ -114,6 +113,7 @@ async def main() -> None:
         print("  Sam:", re.findall(r"blocks: [^;]*", text)[-1])
         walled = await run(a.ticks)
 
+        await ws.send(json.dumps({"t": "cmd", "c": f"fill {min(x0, x1)} {feet} {min(z0, z1)} {max(x0, x1)} {feet + 2} {max(z0, z1)} minecraft:air"}))
         ok = walled < 3.5 and free > walled + 2.0
         print(("PASS" if ok else "FAIL") + f": free {free:.2f} m, against the wall {walled:.2f} m")
 

@@ -55,6 +55,44 @@ class SamLog:
         return self.text()[start:]
 
 
+async def start_level(log: "SamLog", level: str, timeout: float = 120.0) -> None:
+    """StartMap, then get past the level's intro (two clicks skip it) and Netricsa (closed), and wait until the
+    player stands in the level."""
+    sam(f'StartMap("{level}");')
+    await asyncio.sleep(12.0)
+    end = time.time() + timeout
+    calm = 0
+    while time.time() < end:
+        out = await log.after("sc_Where();", "where:", timeout=3.0)
+        lines = [l for l in out.splitlines() if "where:" in l]
+        last = lines[-1] if lines else ""
+        if "cinematic" in last:
+            sam("sc_iTestFire=2;")
+            await asyncio.sleep(0.6)
+            sam("sc_iTestFire=2;")
+            calm = 0
+        elif "netricsa" in last:
+            sam("sc_CloseNetricsa();")
+            calm = 0
+        elif last:
+            calm += 1
+            if calm >= 2:
+                return
+        await asyncio.sleep(1.5)
+
+
+TEST_BLOCKS = ("stone", "stone_bricks", "gold_block", "grass_block", "oak_planks", "glass", "tnt", "fire", "cobblestone",
+               "dirt", "redstone_lamp", "redstone_block", "target")
+
+
+async def clean(ws) -> None:
+    """Remove what earlier tests built around the player: the blocks are solid in Sam too. (One fill may cover at most
+    32768 blocks, or Minecraft refuses it without a word: 33 x 17 x 49 here.)"""
+    for block in TEST_BLOCKS:
+        await ws.send(json.dumps({"t": "cmd", "c": f"execute at @p run fill ~-16 ~-8 ~-40 ~16 ~8 ~8 air replace minecraft:{block}"}))
+    await asyncio.sleep(1.5)
+
+
 async def request(ws, message: dict, want: str, timeout: float = 2.0) -> dict:
     await ws.send(json.dumps(message))
     end = time.time() + timeout
@@ -98,8 +136,7 @@ async def main() -> None:
         await ws.recv()  # hello
         await ws.send(json.dumps({"t": "cmd", "c": "kill @e[type=!minecraft:player]"}))
         if not a.no_restart:
-            sam(f'StartMap("{a.level}");')
-            await asyncio.sleep(30.0)
+            await start_level(log, a.level)
         sam("cht_bGod=1;", "cht_bInvisible=1;", "cht_bGiveAll=1;", "con_iLastLines=0;")
         await asyncio.sleep(1.0)
         sam("sc_iTestSelect=2;")  # colts: every pull of the trigger is a shot (the minigun has to spin up)

@@ -1,6 +1,7 @@
 /* SemCraft 2 - Serious Sam's moving brushes followed in Minecraft. See Movers.h. */
 #include "StdH.h"
 #include "Movers.h"
+#include "Bridge.h"
 
 #include <map>
 #include <vector>
@@ -58,7 +59,7 @@ static BOOL SendEventSEH(CEntity *pen, const CEntityEvent &ee) {
   }
 };
 
-static CEntity *FindMover(INDEX i) {
+CEntity *FindMover(INDEX i) {
   CWorld *pwo = IWorld::GetWorld();
   if (pwo == NULL || i < 0 || i >= (INDEX)_aMovers.size()) return NULL;
   const ULONG ulID = _aMovers[i].ulID;
@@ -173,12 +174,11 @@ void List(void) {
 
 CTString Status(void) {
   // the nearest one to the local player, for tests
-  CPlayerEntities cPlayers;
-  IWorld::GetLocalPlayers(cPlayers);
+  CEntity *penPlayer = bridge::LocalPlayer();
   FLOAT fNearest = 1e9f;
   FLOAT3D vNearest(0, 0, 0);
-  if (cPlayers.Count() > 0) {
-    const FLOAT3D vPlayer = cPlayers.Pointer(0)->GetPlacement().pl_PositionVector;
+  if (penPlayer != NULL) {
+    const FLOAT3D vPlayer = penPlayer->GetPlacement().pl_PositionVector;
     for (size_t i = 0; i < _aMovers.size(); i++) {
       if (!_aMovers[i].bSent) continue;
       const FLOAT fDist = (_aMovers[i].vPos - vPlayer).Length();

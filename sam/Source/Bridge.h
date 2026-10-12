@@ -6,6 +6,9 @@
 
 namespace bridge {
 
+// The local player's entity, or NULL (none yet: while a level starts the player list can hold an empty slot).
+CEntity *LocalPlayer(void);
+
 void Startup(void);
 void Shutdown(void);
 

@@ -11,6 +11,9 @@
 
 namespace blocks {
 
+// 1 = Minecraft's blocks are invisible brushes (flat faces), 0 = colliding models (rounded); persistent console var
+extern INDEX sc_iBlockBrushes;
+
 // From the link: blocks now solid / gone, Sam coordinates of their minimum corners (x, y, z triples).
 void OnBlocks(const double *adSet, INDEX ctSet, const double *adClear, INDEX ctClear);
 // Every simulation tick: create and remove a budget of block entities.
@@ -18,6 +21,9 @@ void Step(void);
 // The world was loaded (or the game stopped): forget our entities, remove any a savegame brought back.
 void Reset(BOOL bPurgeWorld);
 CTString Status(void);
+// Dev: how a brush's polygons face; the block brush nearest to a point.
+void DescribeBrush(CEntity *pen, const char *strWhat);
+CEntity *NearestBrush(const FLOAT3D &v);
 
 }; // namespace
 

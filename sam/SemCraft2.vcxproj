@@ -33,6 +33,7 @@
     <ClCompile Include="Source\LevelExport.cpp" />
     <ClCompile Include="Source\Weapons.cpp" />
     <ClCompile Include="Source\Actors.cpp" />
+    <ClCompile Include="Source\Alloc.cpp" />
     <ClCompile Include="Source\Blocks.cpp" />
     <ClCompile Include="Source\Movers.cpp" />
     <ClCompile Include="Source\GlDraw.cpp">

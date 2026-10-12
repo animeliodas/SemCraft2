@@ -67,7 +67,7 @@ void SendRaw(const char *strJson) {
   Send(strJson);
 };
 
-static CEntity *LocalPlayer(void) {
+CEntity *LocalPlayer(void) {
   CPlayerEntities cPlayers;
   IWorld::GetLocalPlayers(cPlayers);
   if (cPlayers.Count() == 0) return NULL;

@@ -20,7 +20,7 @@ from pathlib import Path
 
 import websockets
 
-from test_wall import GAMES, SamLog, sam
+from test_wall import GAMES, SamLog, sam, start_level
 
 LINE = re.compile(r"mover (\d+) \(entity \d+\): at \(([\d.-]+), ([\d.-]+), ([\d.-]+)\) box \(([\d.-]+), ([\d.-]+), ([\d.-]+)\)-\(([\d.-]+), ([\d.-]+), ([\d.-]+)\)")
 
@@ -60,8 +60,7 @@ async def main() -> None:
     async with websockets.connect("ws://127.0.0.1:25610", max_size=None) as ws:
         await ws.recv()  # hello
         if not a.no_restart:
-            sam(f'StartMap("{a.level}");')
-            await asyncio.sleep(30.0)
+            await start_level(log, a.level)
         sam("cht_bGod=1;", "cht_bInvisible=1;", "con_iLastLines=0;")
         # blocks earlier tests left on the way are solid for Sam too
         for block in ("stone_bricks", "gold_block", "grass_block", "oak_planks", "glass", "tnt", "cobblestone", "dirt", "redstone_lamp", "redstone_block", "target"):

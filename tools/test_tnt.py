@@ -17,7 +17,7 @@ from pathlib import Path
 
 import websockets
 
-from test_wall import GAMES, SamLog, rays_sent, request, sam
+from test_wall import GAMES, SamLog, rays_sent, request, sam, start_level
 
 MC_LOG = Path(__file__).resolve().parents[1] / "mc" / "run" / "logs" / "latest.log"
 
@@ -42,8 +42,7 @@ async def main() -> None:
         await ws.recv()  # hello
         await ws.send(json.dumps({"t": "cmd", "c": "kill @e[type=!minecraft:player]"}))
         if not a.no_restart:
-            sam(f'StartMap("{a.level}");')
-            await asyncio.sleep(30.0)
+            await start_level(log, a.level)
         sam("cht_bGod=1;", "cht_bInvisible=1;", "cht_bGiveAll=1;", "con_iLastLines=0;")
         await asyncio.sleep(1.0)
         sam("sc_iTestSelect=2;")  # colt

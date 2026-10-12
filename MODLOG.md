@@ -138,6 +138,23 @@ Passthrough (как Portalcraft / MC-в-GTA V из базы знаний). Пр�
     `EntitiesV/Global.h` SDK), `SendEvent` под `__try`. `MovingBrush` на `ETrigger` едет к следующему маркеру.
 33. Остатки блоков от прошлых тестов твёрдые и в Sam → ходьба тест-хуком упирается в них; тесты чистят путь.
 34. `tools/dev.py mc-start ... | tail` зависает: java наследует трубу stdout. Запускать без конвейера.
+35. Модели SE1 сталкиваются только сферами (`CCollisionInfo::FromModel`) → на блоках-моделях «шарики», стыки —
+    ямы. Плоско только у брашей. Браш на лету: `WorldBase` (класс 100, не зонирующий) + `CObject3D` с одним
+    сектором, грани — `CObjectSector::CreatePolygon` (экспорт движка), затем `CBrush3D::FromObject3D_t` (FPU 53 бит),
+    `CalculateBoundingBoxes`, `FindCollisionInfo`, `UpdateSpatialRange`, `FindSectorsAroundEntity`.
+36. Сплошной браш (как дверь): нормали наружу (`bReverse=FALSE`) и флаг сектора `BSCF_OPENSECTOR` (+`INVISIBLE`).
+    Без `OPENSECTOR` сектор — «комната» (грани внутрь): Сэм проваливается, держат только рёбра. Сверено dev-командой
+    `sc_BrushInfo` с дверью уровня (нормали out 6/6, флаги сектора 0xA8).
+37. Браши не удаляют на лету (комментарий в `World.cpp`) — чанк пересобирается на месте; пустой чанк получает
+    проходимый куб 1 см (пустой сектор роняет игру).
+38. Пересборка освобождает полигоны, а движимые сущности держат `en_pbpoStandOn` и кэш `en_apbpoNearPolygons`
+    (+`en_boxNearCached`) → перед пересборкой обнулить ссылки на этот браш, иначе падение в физике тика.
+39. Плагин (статический UCRT) переводит `new/delete` на `AllocMemory/FreeMemory` движка (`Alloc.cpp`): массивы
+    `CObject3D` выделяем мы, оптимизирует и освобождает движок (MSVCRT.dll). ClassicsCore тоже на MSVCRT.dll.
+40. `IWorld::GetLocalPlayers` при старте уровня отдаёт слот с NULL → все dev-команды через `bridge::LocalPlayer()`.
+41. Hatshepsut: интро-камера (~60 с, `m_penCamera` игрока = свойство 401/40) пропускается двумя кликами огня, затем
+    открывается Нетрикса — `GetGameAPI()->SetCompState(3)` (CS_TURNINGOFF). `tools/test_wall.start_level` это делает.
+42. `/fill` больше 32768 блоков MC молча отклоняет — уборка тестов 33×17×49.
 
 ## Доказано дальше (2026-10-09)
 - Оружие: кольт 20 → 0.8 HP зомби (`tools/test_shoot.py`), ракеты: 5 зомби 100 → 0 (снаряд «пойман» мобом).
@@ -151,6 +168,9 @@ Passthrough (как Portalcraft / MC-в-GTA V из базы знаний). Пр�
 - Двери и лифты (`tools/test_movers.py`): TFE Hatshepsut 10/10 муверов в радиусе совпали с брашами (±1.5 м), дверь
   едет 1.9 м — клетки MC 2.0 м; лампа редстоуна открыла дверь Sam; дверь Sam зажгла мишень. TSE 1_2_Palenque:
   ворота 5.2 м / клетки 5.0 м, лампа и мишень — PASS.
+- Блоки-браши (`tools/test_stand.py`, `test_blocks.py`, `test_wall.py`), TFE и TSE: на столбе в 0.45 м от центра
+  ноги ровно на верху (20.00), по платформе 7.74 м без покачиваний (модели: 5.71 м, 0.03 м); удаление блоков из-под
+  ног не роняет игру; стена держит (10.35 / 2.00 м), пули — 3/3, `sc_Probe` бьёт в грань браша.
 - Ролик: `_takes/SemCraft2_showcase.mp4` (27.7 s, 1920x1080) из take2 + take4 (`_takes/showcase_edl.json`).
 
 ## Журнал

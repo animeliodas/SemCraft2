@@ -9,6 +9,7 @@
 
 #include "Bridge.h"
 #include "Movers.h"
+#include "Blocks.h"
 #include "Compositor.h"
 #include "GlDraw.h"
 
@@ -194,11 +195,8 @@ static void SC_SpawnSam(SHELL_FUNC_ARGS) {
 // Test hook: what Sam's own collision meets along the crosshair (models by their collision boxes, like bullets).
 static void SC_Probe(SHELL_FUNC_ARGS) {
   BEGIN_SHELL_FUNC;
-  CPlayerEntities cPlayers;
-  IWorld::GetLocalPlayers(cPlayers);
-  if (cPlayers.Count() == 0) return;
-
-  CPlayerEntity *penPlayer = cPlayers.Pointer(0);
+  CPlayerEntity *penPlayer = (CPlayerEntity *)bridge::LocalPlayer();
+  if (penPlayer == NULL) return;
   CPlacement3D plView = IWorld::GetViewpoint(penPlayer, TRUE);
   FLOATmatrix3D m;
   MakeRotationMatrix(m, plView.pl_OrientationAngle);
@@ -217,23 +215,89 @@ static void SC_Probe(SHELL_FUNC_ARGS) {
 };
 
 // Test hook: where the player stands.
+// Player (class 401) property 40, m_penCamera: a cinematic (a level's intro) plays while it's set. 1/0, -1 on a fault.
+static INDEX CinematicSEH(CEntity *penPlayer) {
+  __try {
+    CEntityProperty *pep = IWorld::PropertyForId(LibClassHolder(penPlayer), (401 << 8) | 40);
+    if (pep == NULL || pep->ep_eptType != CEntityProperty::EPT_ENTITYPTR) return 0;
+    return *(CEntity **)((UBYTE *)penPlayer + pep->ep_slOffset) != NULL ? 1 : 0;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return -1;
+  }
+};
+
+// Netricsa (the game's computer, CGame console state): 0 off, 1 on, 2 turning on, 3 turning off, 4 in background; -1 fault.
+static INDEX ComputerStateSEH(void) {
+  __try {
+    return GetGameAPI()->GetCompState();
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return -1;
+  }
+};
+
 static void SC_Where(SHELL_FUNC_ARGS) {
   BEGIN_SHELL_FUNC;
-  CPlayerEntities cPlayers;
-  IWorld::GetLocalPlayers(cPlayers);
-  if (cPlayers.Count() == 0) return;
-  const CPlacement3D &pl = cPlayers.Pointer(0)->GetPlacement();
-  CPrintF("[SemCraft2] where: %.3f %.3f %.3f heading %.1f\n", pl.pl_PositionVector(1), pl.pl_PositionVector(2), pl.pl_PositionVector(3),
-    (FLOAT)pl.pl_OrientationAngle(1));
+  CEntity *penPlayer = bridge::LocalPlayer();
+  if (penPlayer == NULL) return;
+  const CPlacement3D &pl = penPlayer->GetPlacement();
+  // a level's intro (cinematic) playing, Netricsa up: -1 if reading it faulted
+  const INDEX iCinematic = CinematicSEH(penPlayer);
+  const INDEX iComputer = ComputerStateSEH();
+  const BOOL bCinematic = iCinematic == 1;
+  if (iCinematic < 0 || iComputer < 0) {
+    CPrintF("[SemCraft2] where: reading%s%s faulted\n", iCinematic < 0 ? " the player's camera" : "", iComputer < 0 ? " the computer state" : "");
+  }
+  CPrintF("[SemCraft2] where: %.3f %.3f %.3f heading %.1f%s%s\n", pl.pl_PositionVector(1), pl.pl_PositionVector(2), pl.pl_PositionVector(3),
+    (FLOAT)pl.pl_OrientationAngle(1), bCinematic ? " cinematic" : "", (iComputer == 1 || iComputer == 2) ? " netricsa" : "");
+};
+
+// Test hook: move the local player by "dx dy dz" metres (one string: shell functions mangle a second argument).
+static void SC_Move(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  const CTString &strDelta = *NEXT_ARG(CTString *);
+  FLOAT fX = 0, fY = 0, fZ = 0;
+  if (sscanf(strDelta.str_String, "%f %f %f", &fX, &fY, &fZ) != 3) {
+    CPrintF("[SemCraft2] sc_Move: give \"dx dy dz\"\n");
+    return;
+  }
+  CEntity *penPlayer = bridge::LocalPlayer();
+  if (penPlayer == NULL) return;
+  CPlacement3D pl = penPlayer->GetPlacement();
+  pl.pl_PositionVector += FLOAT3D(fX, fY, fZ);
+  penPlayer->SetPlacement(pl);
+  CPrintF("[SemCraft2] moved to %.3f %.3f %.3f\n", pl.pl_PositionVector(1), pl.pl_PositionVector(2), pl.pl_PositionVector(3));
+};
+
+// Dev: how a brush's polygons face: mover i (i >= 0) or the block brush nearest to the player (i < 0).
+static void SC_BrushInfo(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  const INDEX i = NEXT_ARG(INDEX);
+  CEntity *pen = NULL;
+  if (i >= 0) {
+    pen = movers::FindMover(i);
+  } else {
+    CEntity *penPlayer = bridge::LocalPlayer();
+    if (penPlayer != NULL) pen = blocks::NearestBrush(penPlayer->GetPlacement().pl_PositionVector);
+  }
+  CTString strWhat;
+  strWhat.PrintF("%s %d%s", i >= 0 ? "mover" : "blocks", i, pen != NULL && (pen->GetFlags() & ENF_ZONING) ? " (zoning)" : "");
+  blocks::DescribeBrush(pen, strWhat.str_String);
+};
+
+// Test hook: close Netricsa if it's up (as Escape would), so scripted runs aren't stuck behind it.
+static void SC_CloseNetricsa(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  const INDEX iComputer = ComputerStateSEH();
+  if (iComputer == 1 || iComputer == 2) GetGameAPI()->SetCompState(3);
+  CPrintF("[SemCraft2] netricsa: %s\n", (iComputer == 1 || iComputer == 2) ? "closing" : "not open");
 };
 
 // Test hook: the living monsters within 150 m, with their health.
 static void SC_Monsters(SHELL_FUNC_ARGS) {
   BEGIN_SHELL_FUNC;
-  CPlayerEntities cPlayers;
-  IWorld::GetLocalPlayers(cPlayers);
-  if (cPlayers.Count() == 0) return;
-  const FLOAT3D vPlayer = cPlayers.Pointer(0)->GetPlacement().pl_PositionVector;
+  CEntity *penPlayer = bridge::LocalPlayer();
+  if (penPlayer == NULL) return;
+  const FLOAT3D vPlayer = penPlayer->GetPlacement().pl_PositionVector;
 
   INDEX ct = 0;
   FOREACHINDYNAMICCONTAINER(IWorld::GetWorld()->wo_cenEntities, CEntity, iten) {
@@ -259,9 +323,7 @@ static void SC_Movers(SHELL_FUNC_ARGS) {
 static void SC_TriggerMover(SHELL_FUNC_ARGS) {
   BEGIN_SHELL_FUNC;
   const INDEX i = NEXT_ARG(INDEX);
-  CPlayerEntities cPlayers;
-  IWorld::GetLocalPlayers(cPlayers);
-  CEntity *penPlayer = cPlayers.Count() > 0 ? (CEntity *)cPlayers.Pointer(0) : NULL;
+  CEntity *penPlayer = bridge::LocalPlayer();
   CPrintF("[SemCraft2] trigger mover %d: %s\n", i, movers::Trigger(i, penPlayer) ? "sent" : "no such mover");
 };
 
@@ -360,6 +422,9 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Where", "void", &SC_Where);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Monsters", "void", &SC_Monsters);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Movers", "void", &SC_Movers);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_CloseNetricsa", "void", &SC_CloseNetricsa);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Move", "CTString", &SC_Move);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_BrushInfo", "INDEX", &SC_BrushInfo);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_TriggerMover", "INDEX", &SC_TriggerMover);
 
   const char *strDev = getenv("SEMCRAFT2_DEV");
@@ -368,6 +433,7 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   _pShell->DeclareSymbol("user INDEX sc_iCompositeMode;", &compositor::sc_iCompositeMode);
   _pShell->DeclareSymbol("user FLOAT sc_fDepthBias;", &compositor::sc_fDepthBias);
   _pShell->DeclareSymbol("persistent user FLOAT sc_fLightMatch;", &compositor::sc_fLightMatch);
+  _pShell->DeclareSymbol("persistent user INDEX sc_iBlockBrushes;", &blocks::sc_iBlockBrushes);
   _pShell->DeclareSymbol("user INDEX sc_iTestFire;", &bridge::sc_iTestFire);
   _pShell->DeclareSymbol("user INDEX sc_iTestSelect;", &bridge::sc_iTestSelect);
   _pShell->DeclareSymbol("user INDEX sc_iTestWalk;", &bridge::sc_iTestWalk);
