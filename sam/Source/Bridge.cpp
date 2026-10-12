@@ -7,6 +7,7 @@
 #include "Weapons.h"
 #include "Actors.h"
 #include "Blocks.h"
+#include "Movers.h"
 
 #include <Engine/World/WorldRayCasting.h>
 #include <string>
@@ -144,6 +145,7 @@ static void SendLevel(void) {
     + json::Escape(_level.strFile.c_str()) + "\",\"hash\":\"" + _level.strHash + "\",\"tris\":" + std::to_string(_level.ctTris) + "}";
   _bLevelSent = link::Send(str);
   CPrintF("[SemCraft2] level announced to Minecraft: %s (%s)\n", _level.strName.c_str(), _bLevelSent ? "sent" : "send failed");
+  movers::ResendAll();
 };
 
 void OnWorldLoad(CWorld *pwo, const CTFileName &fnmWorld) {
@@ -165,6 +167,7 @@ void OnGameStop(void) {
   weapons::Reset();
   actors::Reset();
   blocks::Reset(FALSE);
+  movers::Reset(); // their entity pointers must go before the world does
 };
 
 // ---------------------------------------------------------------------------------------------------------
@@ -351,6 +354,14 @@ static void Handle(const std::string &strMsg) {
       _avPushes.push_back(FLOAT3D((FLOAT)adV[0], (FLOAT)adV[1], (FLOAT)adV[2]));
     }
 
+  } else if (strType == "trigger") {
+    // Minecraft's redstone reached one of Sam's doors or lifts
+    double dMover = -1;
+    if (json::GetNumber(strMsg, "mover", dMover)) {
+      const BOOL bSent = movers::Trigger((INDEX)dMover, LocalPlayer());
+      CPrintF("[SemCraft2] Minecraft triggers mover %d: %s\n", (INDEX)dMover, bSent ? "sent" : "no such mover");
+    }
+
   } else if (strType == "projhit") {
     double dId = 0;
     if (json::GetNumber(strMsg, "id", dId)) weapons::OnProjectileHit((ULONG)dId);
@@ -435,6 +446,8 @@ void OnStep(void) {
     weapons::Step(penPlayer, &Send);
     // and Sam's monsters are in Minecraft as stand-ins its mobs hunt
     actors::Step(penPlayer, &Send);
+    // and its doors and lifts move there too
+    movers::Step(&Send);
   }
 
   // and Minecraft's blocks are solid here
@@ -483,7 +496,7 @@ CTString Status(void) {
   str.PrintF("link: %s (generation %d), level: %s (%d tris, %s), build: %s, cam frames sent: %u; %s",
     link::Connected() ? "connected" : "waiting for Minecraft on 127.0.0.1:25610", link::Generation(),
     _level.bValid ? _level.strName.c_str() : "none", _level.ctTris, _bLevelSent ? "sent" : "not sent",
-    _bBuild ? "on" : "off", _ulCamFrame, (weapons::Status() + "; " + actors::Status() + "; " + blocks::Status()).str_String);
+    _bBuild ? "on" : "off", _ulCamFrame, (weapons::Status() + "; " + actors::Status() + "; " + blocks::Status() + "; " + movers::Status()).str_String);
   return str;
 };
 

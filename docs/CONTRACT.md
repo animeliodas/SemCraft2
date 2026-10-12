@@ -48,6 +48,8 @@ Sam → MC
 - `{"t":"boom","p":[x,y,z],"r":radius,"dmg":f,"break":b,"src":"rocket"|"grenade"|"flame"|...}` a tracked projectile
   is gone (exploded): MC hurts mobs in the radius, explodes blocks if `break`, a flame sets fire.
 - `{"t":"actors","l":[[id,x,feetY,z,height,width,health],...]}` Sam monsters within 96 m, every 2 ticks.
+- `{"t":"movers","l":[[i,x,y,z,m11,m12,m13,m21,m22,m23,m31,m32,m33],...]}` moving brushes that moved (see `.mov`).
+  A mover that starts moving gives MC target blocks within 6 blocks of it a one-second redstone pulse.
 - `{"t":"cmd","c":"..."}`, `{"t":"status"}`, `{"t":"spawn",...}`, `{"t":"pillar",...}` dev/test hooks.
 
 MC → Sam
@@ -57,6 +59,8 @@ MC → Sam
 - `{"t":"push","v":[x,y,z]}` a MC explosion's knockback on the player, as Sam m/s (×30 of MC blocks/tick, ≤40);
   Sam gives it to its player as an impulse.
 - `{"t":"projhit","id":N}` a Sam projectile hit a MC mob and exploded there: Sam removes its copy quietly.
+- `{"t":"trigger","mover":i}` a redstone lamp lit within 6 blocks of mover i (the nearest): Sam sends the brush an
+  `ETrigger` (code 7) from the player, as its switch would; at most once per 1.5 s per mover.
 - `{"t":"actorhit","id":N,"d":samHp,"boom":b,"from":"zombie"}` a MC hit on a Sam monster's proxy.
 - `{"t":"blocks","set":[x,y,z,...],"clear":[...]}` solid MC blocks appeared / went (Sam coords of minimum corners);
   Sam keeps invisible colliding block models for them.
@@ -85,9 +89,19 @@ Sam is a 32-bit process).
 ```
 0 char[4] "SCT1"   4 int version 1   8 int triangle count N   12 int flags (reserved)
 16 float bbox min x,y,z, max x,y,z
-40 N × { float v0[3], v1[3], v2[3]; int flags }   (40 bytes each, Sam coords)
-   flags: 1 = from a moving brush (door/lift), 2 = passable (not solid)
+40 N × { float v0[3], v1[3], v2[3], normal[3]; int flags }   (52 bytes each, Sam coords)
+   flags: 1 = from a moving brush (door/lift; left out of the static shell), 2 = passable (not solid)
 ```
+
+### Moving brushes file `.mov` (next to the `.tri`, same hash)
+```
+0 char[4] "SCM1"   4 int version 1   8 int mover count M   12 int reserved
+16 M × { int triangle count T; T × float v0[3], v1[3], v2[3] }   (the brush's own coordinates, bvx_vRelative)
+```
+Mover i is the i-th solid moving brush. Sam sends `{"t":"movers","l":[[i,x,y,z,m11..m33],...]}` when one moves (at most
+10 Hz; all of them every 5 s): absolute = (x,y,z) + M · relative. MC voxelizes each placement within 160 blocks of
+the player into invisible shell blocks (top cells as tall as the surface), gives the cells it left back to the static
+shell or the air, and moves mobs and items standing on it by the same step.
 
 ## Lifecycle
 - Either game can start first. MC opens/creates the void world `semcraft2` by itself and waits.

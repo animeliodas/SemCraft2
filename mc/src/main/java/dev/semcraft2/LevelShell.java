@@ -118,6 +118,7 @@ public final class LevelShell {
 
 				Voxelizer.Placed placedLevel = new Voxelizer.Placed(level, ox, oy, 0.0);
 				Mapping.setOffset(ox, oy, 0.0);
+				Movers.load(Path.of(file.replaceFirst("\\.tri$", ".mov")));
 				pending = new Shell(hash, name, placedLevel, generations.incrementAndGet());
 				SemCraft.LOG.info(String.format(Locale.ROOT, "level %s: %d triangles (%d solid), bounds y %.0f..%.0f, region %d, offset (%.0f, %.0f, 0), indexed in %.0f ms",
 					name, level.count(), placedLevel.solidTriangles(), minY, maxY, region, ox, oy, (System.nanoTime() - t0) / 1.0E6));

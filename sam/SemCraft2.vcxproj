@@ -21,6 +21,7 @@
     <ClInclude Include="Source\Weapons.h" />
     <ClInclude Include="Source\Actors.h" />
     <ClInclude Include="Source\Blocks.h" />
+    <ClInclude Include="Source\Movers.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\StdH.cpp">
@@ -33,6 +34,7 @@
     <ClCompile Include="Source\Weapons.cpp" />
     <ClCompile Include="Source\Actors.cpp" />
     <ClCompile Include="Source\Blocks.cpp" />
+    <ClCompile Include="Source\Movers.cpp" />
     <ClCompile Include="Source\GlDraw.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>

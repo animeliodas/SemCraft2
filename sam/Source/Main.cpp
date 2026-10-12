@@ -8,6 +8,7 @@
 #include "StdH.h"
 
 #include "Bridge.h"
+#include "Movers.h"
 #include "Compositor.h"
 #include "GlDraw.h"
 
@@ -248,6 +249,22 @@ static void SC_Monsters(SHELL_FUNC_ARGS) {
   CPrintF("[SemCraft2] monsters: %d\n", ct);
 };
 
+// Test hook: Sam's moving brushes Minecraft follows.
+static void SC_Movers(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  movers::List();
+};
+
+// Test hook: trigger mover i (as the local player).
+static void SC_TriggerMover(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  const INDEX i = NEXT_ARG(INDEX);
+  CPlayerEntities cPlayers;
+  IWorld::GetLocalPlayers(cPlayers);
+  CEntity *penPlayer = cPlayers.Count() > 0 ? (CEntity *)cPlayers.Pointer(0) : NULL;
+  CPrintF("[SemCraft2] trigger mover %d: %s\n", i, movers::Trigger(i, penPlayer) ? "sent" : "no such mover");
+};
+
 // Screenshot of the next finished frame (Sam + Minecraft) as a .bmp.
 static void SC_Shot(SHELL_FUNC_ARGS) {
   BEGIN_SHELL_FUNC;
@@ -342,6 +359,8 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Probe", "void", &SC_Probe);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Where", "void", &SC_Where);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Monsters", "void", &SC_Monsters);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Movers", "void", &SC_Movers);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_TriggerMover", "INDEX", &SC_TriggerMover);
 
   const char *strDev = getenv("SEMCRAFT2_DEV");
   _bDevHook = strDev != NULL && strDev[0] == '1';

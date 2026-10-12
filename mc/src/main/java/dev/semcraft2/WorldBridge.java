@@ -71,6 +71,11 @@ public final class WorldBridge {
 	}
 
 	static void detach() {
+		MinecraftServer s = server;
+		if (s != null) {
+			Movers.clearAll(s.overworld()); // the world is saved after this: no doors left standing where they were
+		}
+
 		server = null;
 		LevelShell.detach();
 		SamMonsters.detach();
@@ -116,8 +121,8 @@ public final class WorldBridge {
 			}
 		}
 
-		return String.format(Locale.ROOT, "{\"t\":\"status\",\"active\":%b,\"build\":%b,\"samHp\":%.1f,\"player\":%s,\"mobs\":%d,\"samMonsters\":%d,\"shell\":%s}",
-			SemCraft.active, SemCraft.buildMode, samHp, player, mobs, SamMonsters.count(), LevelShell.status());
+		return String.format(Locale.ROOT, "{\"t\":\"status\",\"active\":%b,\"build\":%b,\"samHp\":%.1f,\"player\":%s,\"mobs\":%d,\"samMonsters\":%d,\"shell\":%s,\"movers\":%s}",
+			SemCraft.active, SemCraft.buildMode, samHp, player, mobs, SamMonsters.count(), LevelShell.status(), Movers.status());
 	}
 
 	/** Where Sam's player stands (Minecraft coordinates), from the camera messages; null until the first one. */
@@ -171,6 +176,7 @@ public final class WorldBridge {
 		}
 
 		LevelShell.tick(s);
+		Movers.tick(s.overworld(), s.getPlayerList().getPlayers().isEmpty() ? null : s.getPlayerList().getPlayers().get(0));
 		SamMonsters.tick(s);
 		Combat.tick(s.overworld());
 		flushBlocks();
@@ -219,6 +225,12 @@ public final class WorldBridge {
 	public static void onBlockChanged(final ServerLevel level, final BlockPos pos, final BlockState state) {
 		if (quietGround || level != level.getServer().overworld() || ShellBlock.is(state)) {
 			return;
+		}
+
+		// a redstone lamp lighting up next to one of Sam's doors or lifts sets it going
+		if (state.getBlock() == net.minecraft.world.level.block.Blocks.REDSTONE_LAMP
+			&& state.getValue(net.minecraft.world.level.block.RedstoneLampBlock.LIT)) {
+			Movers.onLampLit(level, pos.immutable());
 		}
 
 		// what Sam must know: is there a solid Minecraft block here now?

@@ -1,6 +1,7 @@
 /* SemCraft 2 - level geometry export. See LevelExport.h. */
 #include "StdH.h"
 #include "LevelExport.h"
+#include "Movers.h"
 
 #include <Engine/World/WorldRayCasting.h>
 #include <vector>
@@ -57,6 +58,43 @@ static void ExportPolygon(CBrushPolygon &bpo, ULONG ulBrushFlags, std::vector<Tr
   }
 };
 
+// A moving brush's polygon in the brush's own coordinates (9 floats per triangle), passable ones left out.
+static void ExportRelative(CBrushPolygon &bpo, std::vector<FLOAT> &af) {
+  if (bpo.bpo_ulFlags & BPOF_PASSABLE) return;
+  const INDEX ctVtx = bpo.bpo_apbvxTriangleVertices.Count();
+  const INDEX ctEl = bpo.bpo_aiTriangleElements.Count();
+  for (INDEX iEl = 0; iEl + 2 < ctEl; iEl += 3) {
+    const INDEX ai[3] = { bpo.bpo_aiTriangleElements[iEl], bpo.bpo_aiTriangleElements[iEl + 1], bpo.bpo_aiTriangleElements[iEl + 2] };
+    if (ai[0] < 0 || ai[1] < 0 || ai[2] < 0 || ai[0] >= ctVtx || ai[1] >= ctVtx || ai[2] >= ctVtx) continue;
+    for (INDEX k = 0; k < 3; k++) {
+      const FLOAT3D &v = bpo.bpo_apbvxTriangleVertices[ai[k]]->bvx_vRelative;
+      af.push_back(v(1));
+      af.push_back(v(2));
+      af.push_back(v(3));
+    }
+  }
+};
+
+// level_<hash>.mov: each solid moving brush's triangles in its own coordinates (Minecraft places them as Sam moves them).
+static BOOL WriteMovers(const std::string &strFile, const std::vector<std::vector<FLOAT> > &aaf) {
+  FILE *f = fopen(strFile.c_str(), "wb");
+  if (f == NULL) return FALSE;
+  const ULONG ulMagic = 0x314D4353; // "SCM1"
+  const ULONG ulVersion = 1, ulCount = (ULONG)aaf.size(), ulReserved = 0;
+  fwrite(&ulMagic, 4, 1, f);
+  fwrite(&ulVersion, 4, 1, f);
+  fwrite(&ulCount, 4, 1, f);
+  fwrite(&ulReserved, 4, 1, f);
+  for (size_t i = 0; i < aaf.size(); i++) {
+    const ULONG ctTris = (ULONG)(aaf[i].size() / 9);
+    fwrite(&ctTris, 4, 1, f);
+    if (ctTris > 0) fwrite(&aaf[i][0], 4, ctTris * 9, f);
+  }
+  const BOOL bOK = !ferror(f);
+  fclose(f);
+  return bOK;
+};
+
 Exported Export(CWorld *pwo, const CTFileName &fnmWorld) {
   Exported ex;
   ex.bValid = FALSE;
@@ -66,6 +104,8 @@ Exported Export(CWorld *pwo, const CTFileName &fnmWorld) {
   std::vector<Tri> atri;
   atri.reserve(16384);
   INDEX ctBrushes = 0, ctMoving = 0;
+  std::vector<std::vector<FLOAT> > aafMovers;
+  movers::Reset();
 
   CDynamicArray<CBrush3D> &abr = pwo->wo_baBrushes.ba_abrBrushes;
   abr.Lock();
@@ -91,6 +131,21 @@ Exported Export(CWorld *pwo, const CTFileName &fnmWorld) {
       CBrushSector &bsc = *itbsc;
       for (INDEX iPol = 0; iPol < bsc.bsc_abpoPolygons.Count(); iPol++) {
         ExportPolygon(bsc.bsc_abpoPolygons[iPol], ulBrushFlags, atri);
+      }
+    }
+
+    // a solid moving brush is also kept in its own coordinates, to follow it
+    if ((ulBrushFlags & FLAG_MOVING) && !(ulBrushFlags & FLAG_PASSABLE)) {
+      std::vector<FLOAT> af;
+      FOREACHINDYNAMICARRAY(pbm->bm_abscSectors, CBrushSector, itbsc2) {
+        CBrushSector &bsc = *itbsc2;
+        for (INDEX iPol = 0; iPol < bsc.bsc_abpoPolygons.Count(); iPol++) {
+          ExportRelative(bsc.bsc_abpoPolygons[iPol], af);
+        }
+      }
+      if (!af.empty()) {
+        aafMovers.push_back(af);
+        movers::Add(pen);
       }
     }
   }
@@ -228,6 +283,14 @@ Exported Export(CWorld *pwo, const CTFileName &fnmWorld) {
 
   CPrintF("^c00ff00[SemCraft2]^r level exported: %d brushes (%d moving), %d triangles, bounds (%.0f %.0f %.0f)-(%.0f %.0f %.0f)\n",
     ctBrushes, ctMoving, (INDEX)atri.size(), afMin[0], afMin[1], afMin[2], afMax[0], afMax[1], afMax[2]);
+
+  const std::string strMovers = strDir + "\\level_" + strHash + ".mov";
+  if (!WriteMovers(strMovers, aafMovers)) {
+    CPrintF("^cff8000[SemCraft2]^r writing %s failed; Sam's doors and lifts won't be followed\n", strMovers.c_str());
+    movers::Reset();
+  } else {
+    CPrintF("[SemCraft2] %d solid moving brushes written for Minecraft to follow\n", (INDEX)aafMovers.size());
+  }
 
   ex.strFile = strFile;
   ex.strHash = strHash;

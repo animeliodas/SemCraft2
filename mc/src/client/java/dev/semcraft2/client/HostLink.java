@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.semcraft2.Combat;
 import dev.semcraft2.LevelShell;
+import dev.semcraft2.Movers;
 import dev.semcraft2.SamMonsters;
 import dev.semcraft2.SemCraft;
 import dev.semcraft2.WorldBridge;
@@ -98,6 +99,17 @@ public final class HostLink extends WebSocketServer {
 
 					SamMonsters.update(list);
 				}
+				case "movers" -> {
+					JsonArray l = m.getAsJsonArray("l");
+					double[][] list = new double[l.size()][];
+					for (int i = 0; i < list.length; i++) {
+						list[i] = doubles(l.get(i).getAsJsonArray());
+					}
+
+					Movers.update(list);
+				}
+				case "moversdebug" -> Movers.debug(m.get("on").getAsBoolean());
+				case "moverinfo" -> conn.send(Movers.info(m.get("i").getAsInt()));
 				case "proj" -> {
 					JsonArray l = m.getAsJsonArray("l");
 					double[][] list = new double[l.size()][];
