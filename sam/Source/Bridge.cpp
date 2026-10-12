@@ -49,6 +49,15 @@ static levelx::Exported _level;
 static BOOL _bLevelSent = FALSE;
 static INDEX _iLinkGeneration = -1;
 static BOOL _bBuild = FALSE;
+// a Minecraft screen (the inventory) is open over Sam: the mouse moves its cursor, keys and clicks go to it
+static BOOL _bScreen = FALSE;
+static FLOAT _fCursorX = 0.5f, _fCursorY = 0.5f, _fCursorSentX = -1.0f, _fCursorSentY = -1.0f;
+// view rotation the mouse made while a screen was open, taken back out of every action from then on
+static ANGLE3D _aFreeze(0, 0, 0);
+static ANGLE3D _aLastRaw(0, 0, 0);
+static BOOL _bHaveLastRaw = FALSE;
+static BOOL _bKeyE = FALSE;
+static BOOL _abKeys[256];
 static INDEX _iShowWeaponBefore = -1;
 static ULONG _ulCamFrame = 0;
 static ULONG _ctTicks = 0;
@@ -65,6 +74,12 @@ static void Send(const std::string &str) {
 
 void SendRaw(const char *strJson) {
   Send(strJson);
+};
+
+BOOL OnChat(const char *strText) {
+  if (!link::Connected() || strText == NULL || strText[0] == 0) return FALSE;
+  Send(std::string("{\"t\":\"chat\",\"m\":\"") + json::Escape(strText) + "\"}");
+  return TRUE;
 };
 
 CEntity *LocalPlayer(void) {
@@ -208,8 +223,147 @@ static BOOL KeyDown(int iVK) {
   return (GetAsyncKeyState(iVK) & 0x8000) != 0;
 };
 
+FLOAT sc_fCursorSpeed = 1.0f;
+
+BOOL ScreenCursor(FLOAT &fX, FLOAT &fY) {
+  fX = _fCursorX;
+  fY = _fCursorY;
+  return _bScreen;
+};
+
+static void OpenScreen(void) {
+  if (!link::Connected()) return;
+  _bScreen = TRUE;
+  _fCursorX = _fCursorY = 0.5f;
+  _fCursorSentX = _fCursorSentY = -1.0f;
+  memset(_abKeys, 0, sizeof(_abKeys));
+  for (INDEX vk = 0; vk < 256; vk++) _abKeys[vk] = (GetAsyncKeyState(vk) & 0x8000) != 0; // keys already down don't count
+  Send("{\"t\":\"screen\",\"open\":\"inventory\"}");
+  CPrintF("[SemCraft2] Minecraft inventory open: the mouse moves the cursor, E closes it\n");
+};
+
+// Minecraft closed it (or Sam's menu came up): back to Sam
+static void ScreenClosed(BOOL bTellMinecraft) {
+  if (!_bScreen) return;
+  _bScreen = FALSE;
+  if (bTellMinecraft) Send("{\"t\":\"screen\",\"open\":\"\"}");
+};
+
+// GLFW key codes of the keys a screen wants besides text (0 = not forwarded as a key)
+static int GlfwKey(int iVK) {
+  if (iVK >= 'A' && iVK <= 'Z') return iVK;
+  if (iVK >= '0' && iVK <= '9') return iVK;
+  switch (iVK) {
+    case VK_SPACE: return 32;   case VK_RETURN: return 257; case VK_TAB: return 258;   case VK_BACK: return 259;
+    case VK_DELETE: return 261; case VK_RIGHT: return 262;  case VK_LEFT: return 263;  case VK_DOWN: return 264;
+    case VK_UP: return 265;     case VK_HOME: return 268;   case VK_END: return 269;
+  }
+  return 0;
+};
+
+// While a screen is open: clicks, keys and the characters they type go to it (the layout is the keyboard's).
+static void PollScreen(void) {
+  const BOOL bShift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+  const BOOL bCtrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+  const int iMods = (bShift ? 1 : 0) | (bCtrl ? 2 : 0);
+
+  if (_fCursorX != _fCursorSentX || _fCursorY != _fCursorSentY) {
+    char str[96];
+    _snprintf(str, sizeof(str), "{\"t\":\"cursor\",\"x\":%.4f,\"y\":%.4f}", _fCursorX, _fCursorY);
+    Send(str);
+    _fCursorSentX = _fCursorX;
+    _fCursorSentY = _fCursorY;
+  }
+
+  BYTE abState[256];
+  GetKeyboardState(abState);
+  for (int vk = 1; vk < 256; vk++) {
+    if (vk == VK_SHIFT || vk == VK_CONTROL || vk == VK_MENU || vk == VK_LSHIFT || vk == VK_RSHIFT || vk == VK_LCONTROL || vk == VK_RCONTROL) continue;
+    const BOOL bDown = (GetAsyncKeyState(vk) & 0x8000) != 0;
+    if (bDown == _abKeys[vk]) continue;
+    _abKeys[vk] = bDown;
+    char str[96];
+    if (vk == VK_LBUTTON || vk == VK_RBUTTON || vk == VK_MBUTTON) {
+      const int iButton = vk == VK_LBUTTON ? 0 : (vk == VK_RBUTTON ? 1 : 2);
+      _snprintf(str, sizeof(str), "{\"t\":\"click\",\"b\":%d,\"down\":%s,\"shift\":%s}", iButton, bDown ? "true" : "false", bShift ? "true" : "false");
+      Send(str);
+      continue;
+    }
+    if (!bDown) continue;
+    const int iGlfw = GlfwKey(vk);
+    if (iGlfw != 0) {
+      _snprintf(str, sizeof(str), "{\"t\":\"keydown\",\"k\":%d,\"mods\":%d}", iGlfw, iMods);
+      Send(str);
+    }
+    // the character it types, if any (not with Ctrl, not the control characters)
+    WCHAR awc[4];
+    abState[VK_SHIFT] = bShift ? 0x80 : 0;
+    const int ct = bCtrl ? 0 : ToUnicode(vk, MapVirtualKey(vk, 0), abState, awc, 4, 0);
+    for (int i = 0; i < ct; i++) {
+      if (awc[i] < 32) continue;
+      _snprintf(str, sizeof(str), "{\"t\":\"char\",\"c\":%d}", (int)awc[i]);
+      Send(str);
+    }
+  }
+};
+
+// Dev/test hooks (work with Sam's window in the background): open/close the inventory, click at a point, type.
+void DevScreen(BOOL bOpen) {
+  if (bOpen) OpenScreen(); else ScreenClosed(TRUE);
+};
+
+void DevClick(FLOAT fX, FLOAT fY, INDEX iButton) {
+  if (!_bScreen) return;
+  _fCursorX = Clamp(fX, 0.0f, 1.0f);
+  _fCursorY = Clamp(fY, 0.0f, 1.0f);
+  char str[128];
+  _snprintf(str, sizeof(str), "{\"t\":\"cursor\",\"x\":%.4f,\"y\":%.4f}", _fCursorX, _fCursorY);
+  Send(str);
+  _fCursorSentX = _fCursorX;
+  _fCursorSentY = _fCursorY;
+  _snprintf(str, sizeof(str), "{\"t\":\"click\",\"b\":%d,\"down\":true,\"shift\":false}", iButton);
+  Send(str);
+  _snprintf(str, sizeof(str), "{\"t\":\"click\",\"b\":%d,\"down\":false,\"shift\":false}", iButton);
+  Send(str);
+};
+
+void DevType(const char *strText) {
+  if (!_bScreen) return;
+  for (const char *pch = strText; *pch != 0; pch++) {
+    char str[64];
+    _snprintf(str, sizeof(str), "{\"t\":\"char\",\"c\":%d}", (int)(unsigned char)*pch);
+    Send(str);
+  }
+};
+
 static void PollInput(void) {
   const BOOL bPlaying = Playing();
+
+  if (_bScreen) {
+    // Sam's window in the background: nothing to read, the screen stays
+    HWND hwnd = GetForegroundWindow();
+    DWORD dwPid = 0;
+    GetWindowThreadProcessId(hwnd, &dwPid);
+    if (dwPid != GetCurrentProcessId() && GetGameAPI()->IsGameOn() && !GetGameAPI()->IsMenuOn()) return;
+    // Sam's menu (Escape) or console over it: the screen goes
+    if (!bPlaying) {
+      // typing T in Minecraft's search opens Sam's chat line: cancel that instead
+      if (GetGameAPI()->IsGameOn() && !GetGameAPI()->IsMenuOn() && GetGameAPI()->GetConState() == 5) {
+        GetGameAPI()->SetConState(0);
+        return;
+      }
+      ScreenClosed(TRUE);
+      return;
+    }
+    PollScreen();
+    return;
+  }
+
+  // E opens Minecraft's inventory
+  const BOOL bKeyE = bPlaying && KeyDown('E');
+  if (bKeyE && !_bKeyE) OpenScreen();
+  _bKeyE = bKeyE;
+  if (_bScreen) return;
 
   // B toggles build mode
   const BOOL bKeyB = bPlaying && KeyDown('B');
@@ -265,6 +419,25 @@ void OnPlayerAction(CPlayerAction &pa, BOOL bFresh) {
     _aTestTurn(2) += sc_fTestTurnP;
   }
   pa.pa_aRotation += _aTestTurn;
+
+  // a Minecraft screen open: the mouse moves its cursor instead of the view (actions carry the accumulated rotation,
+  // so what the mouse turned while it was open stays taken out from then on)
+  if (bFresh) {
+    if (_bHaveLastRaw && _bScreen) {
+      const ANGLE3D aDelta = pa.pa_aRotation - _aLastRaw;
+      _aFreeze += aDelta;
+      _fCursorX = Clamp(_fCursorX - aDelta(1) * sc_fCursorSpeed / 90.0f, 0.0f, 1.0f);
+      _fCursorY = Clamp(_fCursorY - aDelta(2) * sc_fCursorSpeed / 60.0f, 0.0f, 1.0f);
+    }
+    _aLastRaw = pa.pa_aRotation;
+    _bHaveLastRaw = TRUE;
+  }
+  pa.pa_aRotation -= _aFreeze;
+  if (_bScreen) {
+    pa.pa_ulButtons = 0;
+    pa.pa_vTranslation = FLOAT3D(0, 0, 0);
+    return;
+  }
 
   if (sc_iTestWalk > 0) {
     sc_iTestWalk--;
@@ -354,6 +527,10 @@ static void Handle(const std::string &strMsg) {
       _avPushes.push_back(FLOAT3D((FLOAT)adV[0], (FLOAT)adV[1], (FLOAT)adV[2]));
     }
 
+  } else if (strType == "screen") {
+    bool bOpen = true;
+    if (json::GetBool(strMsg, "open", bOpen) && !bOpen) ScreenClosed(FALSE);
+
   } else if (strType == "trigger") {
     // Minecraft's redstone reached one of Sam's doors or lifts
     double dMover = -1;
@@ -389,6 +566,7 @@ void OnFrame(void) {
     _snprintf(str, sizeof(str), "{\"t\":\"hello\",\"v\":1,\"game\":\"%s\",\"pid\":%u}", GAME, (ULONG)GetCurrentProcessId());
     Send(str);
     _bLevelSent = FALSE;
+    _bScreen = FALSE; // a new Minecraft has no screen open
     if (_bBuild) Send("{\"t\":\"build\",\"on\":true}");
   }
 

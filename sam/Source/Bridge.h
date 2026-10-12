@@ -37,6 +37,16 @@ void SetBuildMode(BOOL bOn);
 BOOL BuildMode(void);
 // Raw message to Minecraft (console/test hooks).
 void SendRaw(const char *strJson);
+// A chat line for Minecraft ("/..." = a command there). FALSE if Minecraft isn't linked.
+BOOL OnChat(const char *strText);
+// A Minecraft screen (the inventory) is open over Sam: where its cursor is (0..1 of the view).
+BOOL ScreenCursor(FLOAT &fX, FLOAT &fY);
+// cursor speed multiplier (persistent console var)
+extern FLOAT sc_fCursorSpeed;
+// Dev/test: open/close the inventory, click at a point of it (0..1), type text into it.
+void DevScreen(BOOL bOpen);
+void DevClick(FLOAT fX, FLOAT fY, INDEX iButton);
+void DevType(const char *strText);
 // Where the player's crosshair hits Sam's world (for test hooks); FALSE if nothing.
 BOOL AimPoint(FLOAT3D &vHit);
 CTString Status(void);

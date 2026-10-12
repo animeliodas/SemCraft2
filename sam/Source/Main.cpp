@@ -284,6 +284,28 @@ static void SC_BrushInfo(SHELL_FUNC_ARGS) {
   blocks::DescribeBrush(pen, strWhat.str_String);
 };
 
+// Test hooks for Minecraft's inventory over Sam: sc_Inventory(1|0), sc_Click("x y button") with x, y 0..1 of the view,
+// sc_Type("text").
+static void SC_Inventory(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  bridge::DevScreen(NEXT_ARG(INDEX) != 0);
+};
+
+static void SC_Click(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  const CTString &strArgs = *NEXT_ARG(CTString *);
+  FLOAT fX = 0.5f, fY = 0.5f;
+  INDEX iButton = 0;
+  sscanf(strArgs.str_String, "%f %f %d", &fX, &fY, &iButton);
+  bridge::DevClick(fX, fY, iButton);
+};
+
+static void SC_Type(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  const CTString &strText = *NEXT_ARG(CTString *);
+  bridge::DevType(strText.str_String);
+};
+
 // Test hook: close Netricsa if it's up (as Escape would), so scripted runs aren't stuck behind it.
 static void SC_CloseNetricsa(SHELL_FUNC_ARGS) {
   BEGIN_SHELL_FUNC;
@@ -381,8 +403,25 @@ static void SC_OnRenderView(CWorld &wo, CEntity *penViewer, CAnyProjection3D &ap
   compositor::DrawWorld(ppr);
 };
 
+// The cursor of a Minecraft screen open over Sam: an arrow, white with a black edge.
+static void DrawScreenCursor(CDrawPort *pdp) {
+  FLOAT fX, fY;
+  if (!bridge::ScreenCursor(fX, fY)) return;
+  const PIX pixX = (PIX)(fX * pdp->GetWidth()), pixY = (PIX)(fY * pdp->GetHeight());
+  const PIX s = Max((PIX)2, (PIX)(pdp->GetHeight() / 360)); // pixel size of the arrow's "pixels"
+  // rows of the arrow: start column and width, in arrow pixels
+  static const INDEX aiRows[12][2] = { {0,1},{0,2},{0,3},{0,4},{0,5},{0,6},{0,7},{0,8},{0,5},{0,2},{3,2},{4,2} };
+  for (INDEX r = 0; r < 12; r++) {
+    pdp->Fill(pixX + (aiRows[r][0] - 1) * s, pixY + (r - 1) * s, (aiRows[r][1] + 2) * s, 3 * s, C_BLACK | 0xFF);
+  }
+  for (INDEX r = 0; r < 12; r++) {
+    pdp->Fill(pixX + aiRows[r][0] * s, pixY + r * s, aiRows[r][1] * s, s, C_WHITE | 0xFF);
+  }
+};
+
 static void SC_OnPostDraw(CDrawPort *pdp) {
   compositor::DrawOverlay();
+  DrawScreenCursor(pdp);
   TakeShot(pdp);
 };
 
@@ -392,6 +431,21 @@ static void SC_OnWorldLoad(CWorld *pwo, const CTFileName &fnmWorld) {
 
 static void SC_OnGameStop(void) {
   bridge::OnGameStop();
+};
+
+// Sam's chat (Talk, T) goes to Minecraft: "/..." runs there as a command, anything else is said in its chat. Such a
+// message isn't shown as Sam's own chat line (Minecraft's chat shows it, in its overlay).
+static BOOL SC_OnChatMessage(INDEX iClient, ULONG ulFrom, ULONG ulTo, CTString &strMessage) {
+  return bridge::OnChat(strMessage.str_String) ? FALSE : TRUE;
+};
+
+// Console: a Minecraft command, e.g. mc("give @p diamond_sword") or mc("time set night").
+static void SC_Mc(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  const CTString &strCommand = *NEXT_ARG(CTString *);
+  CTString str = strCommand;
+  if (str.str_String[0] != '/') str = CTString("/") + str;
+  if (!bridge::OnChat(str.str_String)) CPrintF("[SemCraft2] mc: Minecraft isn't linked\n");
 };
 
 static void SC_OnPlayerAction(INDEX iClient, INDEX iPlayer, CPlayerAction &pa, INDEX iResent) {
@@ -410,6 +464,7 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   events.m_world->OnWorldLoad = &SC_OnWorldLoad;
   events.m_game->OnGameStop = &SC_OnGameStop;
   events.m_packet->OnPlayerAction = &SC_OnPlayerAction;
+  events.m_packet->OnChatMessage = &SC_OnChatMessage;
 
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Status", "void", &SC_Status);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Build", "void", &SC_Build);
@@ -425,6 +480,10 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_CloseNetricsa", "void", &SC_CloseNetricsa);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Move", "CTString", &SC_Move);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_BrushInfo", "INDEX", &SC_BrushInfo);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "mc", "CTString", &SC_Mc);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Inventory", "INDEX", &SC_Inventory);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Click", "CTString", &SC_Click);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Type", "CTString", &SC_Type);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_TriggerMover", "INDEX", &SC_TriggerMover);
 
   const char *strDev = getenv("SEMCRAFT2_DEV");
@@ -434,6 +493,7 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   _pShell->DeclareSymbol("user FLOAT sc_fDepthBias;", &compositor::sc_fDepthBias);
   _pShell->DeclareSymbol("persistent user FLOAT sc_fLightMatch;", &compositor::sc_fLightMatch);
   _pShell->DeclareSymbol("persistent user INDEX sc_iBlockBrushes;", &blocks::sc_iBlockBrushes);
+  _pShell->DeclareSymbol("persistent user FLOAT sc_fCursorSpeed;", &bridge::sc_fCursorSpeed);
   _pShell->DeclareSymbol("user INDEX sc_iTestFire;", &bridge::sc_iTestFire);
   _pShell->DeclareSymbol("user INDEX sc_iTestSelect;", &bridge::sc_iTestSelect);
   _pShell->DeclareSymbol("user INDEX sc_iTestWalk;", &bridge::sc_iTestWalk);

@@ -68,6 +68,7 @@ public final class HostLink extends WebSocketServer {
 				}
 				case "state" -> WorldBridge.samState(m.get("hp").getAsFloat(), !m.has("alive") || m.get("alive").getAsBoolean());
 				case "cmd" -> WorldBridge.command(m.get("c").getAsString());
+				case "chat" -> WorldBridge.chat(m.get("m").getAsString());
 				case "status" -> {
 					conn.send(WorldBridge.status());
 					Minecraft mc = Minecraft.getInstance();
@@ -77,8 +78,9 @@ public final class HostLink extends WebSocketServer {
 						hit instanceof net.minecraft.world.phys.BlockHitResult b ? String.format(Locale.ROOT, ",\"block\":[%d,%d,%d],\"state\":\"%s\"",
 							b.getBlockPos().getX(), b.getBlockPos().getY(), b.getBlockPos().getZ(),
 							mc.level == null ? "" : mc.level.getBlockState(b.getBlockPos()).toString()) : "");
-					conn.send(String.format(Locale.ROOT, "{\"t\":\"client\",\"screen\":\"%s\",\"hit\":%s,\"slot\":%d,\"held\":\"%s\",\"eye\":[%.2f,%.2f,%.2f],\"rot\":[%.1f,%.1f]}",
-						mc.gui.screen() == null ? "" : mc.gui.screen().getClass().getSimpleName(), target,
+					conn.send(String.format(Locale.ROOT, "{\"t\":\"client\",\"screen\":\"%s\",\"gui\":[%d,%d],\"hotbar\":[%s],\"hit\":%s,\"slot\":%d,\"held\":\"%s\",\"eye\":[%.2f,%.2f,%.2f],\"rot\":[%.1f,%.1f]}",
+						mc.gui.screen() == null ? "" : mc.gui.screen().getClass().getSimpleName(), mc.getWindow().getGuiScaledWidth(),
+						mc.getWindow().getGuiScaledHeight(), hotbar(mc), target,
 						mc.player == null ? -1 : mc.player.getInventory().getSelectedSlot(),
 						mc.player == null ? "" : mc.player.getMainHandItem().toString(),
 						mc.player == null ? 0.0 : mc.player.getEyePosition().x, mc.player == null ? 0.0 : mc.player.getEyePosition().y,
@@ -122,6 +124,10 @@ public final class HostLink extends WebSocketServer {
 				case "pillar" ->Combat.pillar(doubles(m.getAsJsonArray("p")), m.has("h") ? m.get("h").getAsInt() : 3);
 				case "spawn" -> Combat.spawn(m.get("k").getAsString(), doubles(m.getAsJsonArray("p")), m.has("n") ? m.get("n").getAsInt() : 1,
 					m.has("r") ? m.get("r").getAsDouble() : 4.0);
+				case "screen", "cursor", "click", "char", "keydown", "scrollgui" -> {
+					Minecraft minecraft = Minecraft.getInstance();
+					minecraft.execute(() -> ScreenInput.handle(minecraft, m));
+				}
 				default -> {
 					Minecraft minecraft = Minecraft.getInstance();
 					minecraft.execute(() -> ClientInput.handle(minecraft, m));
@@ -133,6 +139,21 @@ public final class HostLink extends WebSocketServer {
 				SemCraft.LOG.warn("bad message {}: {}", message.length() > 200 ? message.substring(0, 200) : message, e.toString());
 			}
 		}
+	}
+
+	/** The hotbar's items, for tests: "minecraft:stone x64", ... */
+	private static String hotbar(final Minecraft mc) {
+		if (mc.player == null) {
+			return "";
+		}
+
+		StringBuilder b = new StringBuilder();
+		for (int i = 0; i < 9; i++) {
+			net.minecraft.world.item.ItemStack s = mc.player.getInventory().getItem(i);
+			b.append(i == 0 ? "" : ",").append('"').append(s.isEmpty() ? "" : net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(s.getItem()) + " x" + s.getCount()).append('"');
+		}
+
+		return b.toString();
 	}
 
 	@Override

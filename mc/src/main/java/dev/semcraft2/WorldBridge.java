@@ -49,7 +49,7 @@ public final class WorldBridge {
 		"attribute @p minecraft:entity_interaction_range base set 6"
 	);
 
-	/** The build hotbar. Refilled every few seconds, so blocks never run out. */
+	/** The build hotbar, given once; after that the player's choices stay (and are topped up, see refill). */
 	private static final List<String> HOTBAR = List.of(
 		"item replace entity @a hotbar.0 with minecraft:diamond_sword",
 		"item replace entity @a hotbar.1 with minecraft:grass_block 64",
@@ -164,8 +164,8 @@ public final class WorldBridge {
 
 		if (refillIn > 0 && --refillIn == 0) {
 			refillIn = 200;
-			if (SemCraft.active) {
-				HOTBAR.subList(1, HOTBAR.size()).forEach(c -> s.getCommands().performPrefixedCommand(s.createCommandSourceStack(), c));
+			if (SemCraft.active && !s.getPlayerList().getPlayers().isEmpty()) {
+				refill(s.getPlayerList().getPlayers().get(0));
 			}
 		}
 
@@ -180,6 +180,93 @@ public final class WorldBridge {
 		SamMonsters.tick(s);
 		Combat.tick(s.overworld());
 		flushBlocks();
+	}
+
+	/**
+	 * Sam opened Minecraft's inventory (link -> client thread): the player is creative while it's open (the creative
+	 * inventory has every block and item), then a survival player again, whom mobs hunt.
+	 */
+	public static void inventoryMode(final boolean open) {
+		MinecraftServer s = server;
+		if (s == null) {
+			return;
+		}
+
+		s.execute(() -> {
+			if (s.getPlayerList().getPlayers().isEmpty()) {
+				return;
+			}
+
+			ServerPlayer player = s.getPlayerList().getPlayers().get(0);
+			player.setGameMode(open ? net.minecraft.world.level.GameType.CREATIVE : net.minecraft.world.level.GameType.SURVIVAL);
+			player.getAbilities().mayfly = true;
+			player.getAbilities().flying = true;
+			player.onUpdateAbilities();
+			SemCraft.LOG.info("inventory {}: {}", open ? "open" : "closed", player.gameMode.getGameModeForPlayer());
+		});
+	}
+
+	/** Blocks never run out: every stackable thing in the hotbar is topped up to a full stack (whatever the player chose). */
+	private static void refill(final ServerPlayer player) {
+		net.minecraft.world.entity.player.Inventory inventory = player.getInventory();
+		for (int i = 0; i < net.minecraft.world.entity.player.Inventory.getSelectionSize(); i++) {
+			net.minecraft.world.item.ItemStack stack = inventory.getItem(i);
+			if (!stack.isEmpty() && stack.isStackable() && stack.getCount() < stack.getMaxStackSize()) {
+				stack.setCount(stack.getMaxStackSize());
+			}
+		}
+	}
+
+	/**
+	 * Sam's chat (link thread): "/..." runs as a command at the player, with operator rights, its output shown in
+	 * Minecraft's chat; anything else is said in Minecraft's chat as Sam.
+	 */
+	public static void chat(final String text) {
+		MinecraftServer s = server;
+		if (s == null || text == null || text.isBlank()) {
+			return;
+		}
+
+		s.execute(() -> {
+			ServerPlayer player = s.getPlayerList().getPlayers().isEmpty() ? null : s.getPlayerList().getPlayers().get(0);
+			if (!text.startsWith("/")) {
+				s.getPlayerList().broadcastSystemMessage(net.minecraft.network.chat.Component.literal("<Sam> " + text), false);
+				return;
+			}
+
+			net.minecraft.commands.CommandSource out = new net.minecraft.commands.CommandSource() {
+				@Override
+				public void sendSystemMessage(final net.minecraft.network.chat.Component message) {
+					SemCraft.LOG.info("command output: {}", message.getString());
+					if (player != null) {
+						player.sendSystemMessage(message);
+					}
+				}
+
+				@Override
+				public boolean acceptsSuccess() {
+					return true;
+				}
+
+				@Override
+				public boolean acceptsFailure() {
+					return true;
+				}
+
+				@Override
+				public boolean shouldInformAdmins() {
+					return false;
+				}
+			};
+
+			net.minecraft.commands.CommandSourceStack source = s.createCommandSourceStack().withSource(out);
+			if (player != null) {
+				source = source.withEntity(player).withPosition(player.position()).withRotation(player.getRotationVector());
+			}
+
+			SemCraft.LOG.info("Sam runs a command: {}", text);
+			s.getCommands().performPrefixedCommand(source, text.substring(1));
+		});
 	}
 
 	/** Minecraft's hearts show Sam's health (100 Sam = 20 Minecraft), never letting the stand-in die. */
