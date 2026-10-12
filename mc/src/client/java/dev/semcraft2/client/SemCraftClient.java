@@ -119,7 +119,7 @@ public class SemCraftClient implements ClientModInitializer {
 		options.damageTiltStrength().set(0.0);
 		options.menuBackgroundBlurriness().set(0);
 		options.enableVsync().set(false);
-		options.framerateLimit().set(120);
+		options.framerateLimit().set(260); // unlimited: the fresher Minecraft's frame, the less it drifts against Sam's
 		options.save();
 	}
 

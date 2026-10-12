@@ -213,16 +213,23 @@ public final class WorldBridge {
 	private static String lastGear = "";
 	private static int gearIn, gearRepeat;
 
-	/** What Sam's glide needs to know: an elytra on the chest, a firework in hand (sent on change, and every 2 s). */
+	/** What Sam's glide needs to know: an elytra on the chest, how many fireworks (sent on change, and every 2 s). */
 	private static void gear(final MinecraftServer s) {
 		if (--gearIn > 0 || s.getPlayerList().getPlayers().isEmpty()) {
 			return;
 		}
 
 		ServerPlayer player = s.getPlayerList().getPlayers().get(0);
-		String now = String.format(Locale.ROOT, "{\"t\":\"gear\",\"elytra\":%b,\"firework\":%b}",
-			player.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST).is(net.minecraft.world.item.Items.ELYTRA),
-			player.getMainHandItem().is(net.minecraft.world.item.Items.FIREWORK_ROCKET));
+		int fireworks = 0;
+		for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+			net.minecraft.world.item.ItemStack stack = player.getInventory().getItem(i);
+			if (stack.is(net.minecraft.world.item.Items.FIREWORK_ROCKET)) {
+				fireworks += stack.getCount();
+			}
+		}
+
+		String now = String.format(Locale.ROOT, "{\"t\":\"gear\",\"elytra\":%b,\"fireworks\":%d}",
+			player.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST).is(net.minecraft.world.item.Items.ELYTRA), fireworks);
 		gearIn = 5;
 		// on a change, and every 2 s anyway (Sam may have connected since, or restarted)
 		if (!now.equals(lastGear) || ++gearRepeat >= 8) {

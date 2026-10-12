@@ -248,8 +248,11 @@ static void SC_Where(SHELL_FUNC_ARGS) {
   if (iCinematic < 0 || iComputer < 0) {
     CPrintF("[SemCraft2] where: reading%s%s faulted\n", iCinematic < 0 ? " the player's camera" : "", iComputer < 0 ? " the computer state" : "");
   }
-  CPrintF("[SemCraft2] where: %.3f %.3f %.3f heading %.1f%s%s\n", pl.pl_PositionVector(1), pl.pl_PositionVector(2), pl.pl_PositionVector(3),
-    (FLOAT)pl.pl_OrientationAngle(1), bCinematic ? " cinematic" : "", (iComputer == 1 || iComputer == 2) ? " netricsa" : "");
+  const FLOAT fPitch = IWorld::GetViewpoint((CPlayerEntity *)penPlayer, FALSE).pl_OrientationAngle(2);
+  const BOOL bWater = glide::InWater(penPlayer);
+  CPrintF("[SemCraft2] where: %.3f %.3f %.3f heading %.1f pitch %.1f%s%s%s\n", pl.pl_PositionVector(1), pl.pl_PositionVector(2),
+    pl.pl_PositionVector(3), (FLOAT)pl.pl_OrientationAngle(1), fPitch, bCinematic ? " cinematic" : "",
+    (iComputer == 1 || iComputer == 2) ? " netricsa" : "", bWater ? " water" : "");
 };
 
 // Test hook: move the local player by "dx dy dz" metres (one string: shell functions mangle a second argument).
@@ -308,6 +311,12 @@ static void SC_Type(SHELL_FUNC_ARGS) {
 };
 
 // Test hook / no-firework boost: Minecraft's firework thrust while gliding.
+// Test hook: what the right mouse button does while gliding (a firework, if the player has one).
+static void SC_Firework(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  CPrintF("[SemCraft2] firework: %s\n", bridge::TryBoost() ? "lit" : "not gliding, or none left");
+};
+
 static void SC_Boost(SHELL_FUNC_ARGS) {
   BEGIN_SHELL_FUNC;
   CPrintF("[SemCraft2] boost: %s\n", glide::Boost() ? "on" : "not gliding");
@@ -489,6 +498,7 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_BrushInfo", "INDEX", &SC_BrushInfo);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "mc", "CTString", &SC_Mc);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Boost", "void", &SC_Boost);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Firework", "void", &SC_Firework);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Inventory", "INDEX", &SC_Inventory);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Click", "CTString", &SC_Click);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Type", "CTString", &SC_Type);

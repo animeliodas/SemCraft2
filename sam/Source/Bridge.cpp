@@ -11,6 +11,7 @@
 #include "Glide.h"
 
 #include <Engine/World/WorldRayCasting.h>
+#include <Engine/Base/Input.h>
 #include <string>
 #include <deque>
 #include <vector>
@@ -266,6 +267,19 @@ static int GlfwKey(int iVK) {
 
 // While a screen is open: clicks, keys and the characters they type go to it (the layout is the keyboard's).
 static void PollScreen(void) {
+  // the mouse, every frame: Sam's input reads its movement (pixels times sensitivity, y up); the view stays frozen
+  RECT rc;
+  if (_pInput != NULL && GetClientRect(GetForegroundWindow(), &rc) && rc.right > 0 && rc.bottom > 0) {
+    _fCursorX = Clamp(_fCursorX + _pInput->GetAxisValue(MOUSE_X_AXIS) * sc_fCursorSpeed / (FLOAT)rc.right, 0.0f, 1.0f);
+    _fCursorY = Clamp(_fCursorY - _pInput->GetAxisValue(MOUSE_Y_AXIS) * sc_fCursorSpeed / (FLOAT)rc.bottom, 0.0f, 1.0f);
+    const FLOAT fWheel = _pInput->GetAxisValue(3);
+    if (fWheel != 0.0f) {
+      char strWheel[64];
+      _snprintf(strWheel, sizeof(strWheel), "{\"t\":\"scrollgui\",\"d\":%d}", fWheel > 0 ? 1 : -1);
+      Send(strWheel);
+    }
+  }
+
   const BOOL bShift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
   const BOOL bCtrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
   const int iMods = (bShift ? 1 : 0) | (bCtrl ? 2 : 0);
@@ -339,6 +353,14 @@ void DevType(const char *strText) {
   }
 };
 
+// A firework while gliding, if the player has one (Minecraft takes one away).
+BOOL TryBoost(void) {
+  if (!glide::Gliding() || !glide::FireworkInHand()) return FALSE;
+  if (!glide::Boost()) return FALSE;
+  Send("{\"t\":\"cmd\",\"c\":\"clear @p minecraft:firework_rocket 1\"}");
+  return TRUE;
+};
+
 static void PollInput(void) {
   if (sc_iDisable & 128) return;
   const BOOL bPlaying = Playing();
@@ -363,11 +385,9 @@ static void PollInput(void) {
     return;
   }
 
-  // gliding with a firework in hand: the right mouse button lights it (one firework goes)
-  const BOOL bBoostKey = bPlaying && !_bBuild && glide::Gliding() && KeyDown(VK_RBUTTON);
-  if (bBoostKey && !_bBoostKey && glide::FireworkInHand() && glide::Boost()) {
-    Send("{\"t\":\"cmd\",\"c\":\"clear @p minecraft:firework_rocket 1\"}");
-  }
+  // gliding: the right mouse button lights a firework if the player has one (one goes), in build mode too
+  const BOOL bBoostKey = bPlaying && glide::Gliding() && KeyDown(VK_RBUTTON);
+  if (bBoostKey && !_bBoostKey) TryBoost();
   _bBoostKey = bBoostKey;
 
   // E opens Minecraft's inventory
@@ -383,7 +403,7 @@ static void PollInput(void) {
 
   const BOOL bActive = bPlaying && _bBuild;
   const BOOL bLMB = bActive && KeyDown(VK_LBUTTON);
-  const BOOL bRMB = bActive && KeyDown(VK_RBUTTON);
+  const BOOL bRMB = bActive && KeyDown(VK_RBUTTON) && !glide::Gliding();
 
   if (bLMB != _bLMB) Send(bLMB ? "{\"t\":\"key\",\"k\":\"attack\",\"down\":true}" : "{\"t\":\"key\",\"k\":\"attack\",\"down\":false}");
   if (bRMB != _bRMB) Send(bRMB ? "{\"t\":\"key\",\"k\":\"use\",\"down\":true}" : "{\"t\":\"key\",\"k\":\"use\",\"down\":false}");
@@ -439,10 +459,7 @@ void OnPlayerAction(CPlayerAction &pa, BOOL bFresh) {
   // so what the mouse turned while it was open stays taken out from then on)
   if (bFresh) {
     if (_bHaveLastRaw && _bScreen) {
-      const ANGLE3D aDelta = pa.pa_aRotation - _aLastRaw;
-      _aFreeze += aDelta;
-      _fCursorX = Clamp(_fCursorX - aDelta(1) * sc_fCursorSpeed / 90.0f, 0.0f, 1.0f);
-      _fCursorY = Clamp(_fCursorY - aDelta(2) * sc_fCursorSpeed / 60.0f, 0.0f, 1.0f);
+      _aFreeze += pa.pa_aRotation - _aLastRaw; // (the cursor follows the mouse every frame, see PollScreen)
     }
     _aLastRaw = pa.pa_aRotation;
     _bHaveLastRaw = TRUE;
@@ -547,10 +564,11 @@ static void Handle(const std::string &strMsg) {
     if (json::GetBool(strMsg, "open", bOpen) && !bOpen) ScreenClosed(FALSE);
 
   } else if (strType == "gear") {
-    bool bElytra = false, bFirework = false;
+    bool bElytra = false;
+    double dFireworks = 0;
     json::GetBool(strMsg, "elytra", bElytra);
-    json::GetBool(strMsg, "firework", bFirework);
-    glide::OnGear(bElytra, bFirework);
+    json::GetNumber(strMsg, "fireworks", dFireworks);
+    glide::OnGear(bElytra, (INDEX)dFireworks);
 
   } else if (strType == "trigger") {
     // Minecraft's redstone reached one of Sam's doors or lifts

@@ -43,6 +43,8 @@ BOOL OnChat(const char *strText);
 BOOL ScreenCursor(FLOAT &fX, FLOAT &fY);
 // cursor speed multiplier (persistent console var)
 extern FLOAT sc_fCursorSpeed;
+// A firework while gliding, if the player has one (right mouse button; also sc_Firework()).
+BOOL TryBoost(void);
 // dev: subsystems switched off (see Bridge.cpp)
 extern INDEX sc_iDisable;
 // Dev/test: open/close the inventory, click at a point of it (0..1), type text into it.

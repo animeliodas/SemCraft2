@@ -80,7 +80,7 @@ def start_sam(name: str, level: str | None) -> None:
     if level and level.startswith("+"):
         # "+name": the level from the command line (StartMap from the menu hangs some levels, e.g. 11_AlleyOfSphinxes)
         level = level[1:]
-        args += ["+level", f"Levels/{level}.wld" if "/" not in level else f"{level}.wld"]
+        args += ["+level", f"Levels/{level}.wld"]
         p = subprocess.Popen(args, cwd=str(d / "Bin"), env=env, creationflags=subprocess.DETACHED_PROCESS)
         print(f"started {exe.name} pid {p.pid} on {args[-1]}")
         wait_log(name, "[SemCraft2]^r loaded (built", 60)

@@ -78,7 +78,8 @@ public final class HostLink extends WebSocketServer {
 						hit instanceof net.minecraft.world.phys.BlockHitResult b ? String.format(Locale.ROOT, ",\"block\":[%d,%d,%d],\"state\":\"%s\"",
 							b.getBlockPos().getX(), b.getBlockPos().getY(), b.getBlockPos().getZ(),
 							mc.level == null ? "" : mc.level.getBlockState(b.getBlockPos()).toString()) : "");
-					conn.send(String.format(Locale.ROOT, "{\"t\":\"client\",\"screen\":\"%s\",\"gui\":[%d,%d],\"hotbar\":[%s],\"hit\":%s,\"slot\":%d,\"held\":\"%s\",\"eye\":[%.2f,%.2f,%.2f],\"rot\":[%.1f,%.1f]}",
+					conn.send(String.format(Locale.ROOT, "{\"t\":\"client\",\"build\":%b,\"attackDown\":%b,\"grabbed\":%b,\"destroying\":%b,\"screen\":\"%s\",\"gui\":[%d,%d],\"hotbar\":[%s],\"hit\":%s,\"slot\":%d,\"held\":\"%s\",\"eye\":[%.2f,%.2f,%.2f],\"rot\":[%.1f,%.1f]}",
+						SemCraft.buildMode, mc.options.keyAttack.isDown(), mc.mouseHandler.isMouseGrabbed(), mc.gameMode != null && mc.gameMode.isDestroying(),
 						mc.gui.screen() == null ? "" : mc.gui.screen().getClass().getSimpleName(), mc.getWindow().getGuiScaledWidth(),
 						mc.getWindow().getGuiScaledHeight(), hotbar(mc), target,
 						mc.player == null ? -1 : mc.player.getInventory().getSelectedSlot(),

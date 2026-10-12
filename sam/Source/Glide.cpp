@@ -2,6 +2,8 @@
 #include "StdH.h"
 #include "Glide.h"
 
+#include <Engine/World/WorldSettings.h>
+
 namespace glide {
 
 // Minecraft's numbers (LivingEntity fall flying, FireworkRocketEntity), per tick; both games tick 20 times a second
@@ -11,7 +13,7 @@ static const INDEX BOOST_TICKS = 22; // a flight-duration-1 rocket
 static BOOL _bElytra = FALSE, _bFirework = FALSE;
 static BOOL _bGliding = FALSE;
 static BOOL _bJumpWasDown = FALSE, _bJumpPressed = FALSE;
-static ULONG _ulPhysicsBefore = 0;
+static INDEX _ctFireworks = 0;
 static INDEX _ctBoost = 0;
 static ULONG _ctGlides = 0, _ctBoosts = 0, _ctTicks = 0;
 static DOUBLE _dDistance = 0, _dDrop = 0;
@@ -25,9 +27,24 @@ static BOOL _bHaveSet = FALSE;
 // Sam's own pull on the player per tick (blocks/tick; its gravity keeps working on a player), measured while gliding
 static DOUBLE _dSamPull = 0;
 
-void OnGear(BOOL bElytra, BOOL bFirework) {
+// Swimming as Player.es sees it: a swimmable content (water) around the player, enough of him in it.
+BOOL InWater(CEntity *pen) {
+  if (pen == NULL || !(pen->en_ulPhysicsFlags & EPF_MOVABLE)) return FALSE;
+  CMovableEntity *pmen = (CMovableEntity *)pen;
+  CWorld *pwo = pen->GetWorld();
+  if (pwo == NULL) return FALSE;
+  const INDEX ctContents = pwo->wo_actContentTypes.Count();
+  if (pmen->en_iUpContent < 0 || pmen->en_iUpContent >= ctContents || pmen->en_iDnContent < 0 || pmen->en_iDnContent >= ctContents) return FALSE;
+  const CContentType &ctUp = pwo->wo_actContentTypes[pmen->en_iUpContent];
+  const CContentType &ctDn = pwo->wo_actContentTypes[pmen->en_iDnContent];
+  return ((ctUp.ct_ulFlags & CTF_SWIMABLE) && pmen->en_fImmersionFactor <= 0.99f)
+    || ((ctDn.ct_ulFlags & CTF_SWIMABLE) && pmen->en_fImmersionFactor >= 0.1f);
+};
+
+void OnGear(BOOL bElytra, INDEX ctFireworks) {
   _bElytra = bElytra;
-  _bFirework = bFirework;
+  _ctFireworks = ctFireworks;
+  _bFirework = ctFireworks > 0;
 };
 
 BOOL Gliding(void) { return _bGliding; };
@@ -65,7 +82,6 @@ static void Stop(CMovableEntity *pmen) {
   _bGliding = FALSE;
   _ctBoost = 0;
   if (pmen != NULL) {
-    pmen->en_ulPhysicsFlags = (pmen->en_ulPhysicsFlags & ~EPF_TRANSLATEDBYGRAVITY) | (_ulPhysicsBefore & EPF_TRANSLATEDBYGRAVITY);
     const FLOAT3D v = pmen->GetPlacement().pl_PositionVector;
     _dDistance = sqrt((v(1) - _vStart(1)) * (v(1) - _vStart(1)) + (v(3) - _vStart(3)) * (v(3) - _vStart(3)));
     _dDrop = _vStart(2) - v(2);
@@ -82,13 +98,15 @@ void Step(CEntity *penPlayer) {
   }
   CMovableEntity *pmen = (CMovableEntity *)penPlayer;
   const BOOL bOnGround = pmen->en_penReference != NULL;
+  // in water Sam swims (jump = up): no wings there
+  const BOOL bInWater = InWater(penPlayer);
 
   if (!_bGliding) {
     // a jump pressed while falling, with an elytra on: the wings open
-    if (_bJumpPressed && _bElytra && !bOnGround) {
+    if (_bJumpPressed && _bElytra && !bOnGround && !bInWater) {
       _bGliding = TRUE;
-      _ulPhysicsBefore = pmen->en_ulPhysicsFlags;
-      pmen->en_ulPhysicsFlags &= ~EPF_TRANSLATEDBYGRAVITY;
+      // (Sam's gravity flag stays: Player.es puts it back every tick and levels the view when it does; the glide takes
+      // out Sam's gravity itself, see below)
       _vStart = pmen->GetPlacement().pl_PositionVector;
       _bHaveSet = FALSE;
       _ctGlides++;
@@ -99,7 +117,7 @@ void Step(CEntity *penPlayer) {
   }
   _bJumpPressed = FALSE;
 
-  if (bOnGround || !_bElytra) {
+  if (bOnGround || bInWater || !_bElytra) {
     Stop(pmen);
     return;
   }

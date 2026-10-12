@@ -11,8 +11,8 @@
 
 namespace glide {
 
-// From Minecraft: is an elytra worn, is a firework in hand.
-void OnGear(BOOL bElytra, BOOL bFirework);
+// From Minecraft: is an elytra worn, how many fireworks the player has (anywhere in the inventory).
+void OnGear(BOOL bElytra, INDEX ctFireworks);
 // Every player action: a jump pressed in the air may open the wings; while gliding, walking is off.
 void OnAction(CPlayerAction &pa, BOOL bFresh);
 // Every simulation tick.
@@ -20,11 +20,14 @@ void Step(CEntity *penPlayer);
 // A firework: about a second of thrust (only while gliding).
 BOOL Boost(void);
 BOOL Gliding(void);
+// the player has a firework to light
 BOOL FireworkInHand(void);
 // test hook: hold jump for this many player actions
 extern INDEX sc_iTestJump;
 // dev: log this many glide samples (every 5 ticks)
 extern INDEX sc_iGlideLog;
+// Is the player swimming (water around him)?
+BOOL InWater(CEntity *pen);
 void Reset(void);
 CTString Status(void);
 

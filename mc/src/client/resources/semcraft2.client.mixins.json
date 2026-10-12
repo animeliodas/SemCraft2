@@ -2,6 +2,6 @@
 	"required": true,
 	"package": "dev.semcraft2.client.mixin",
 	"compatibilityLevel": "JAVA_25",
-	"client": ["CameraMixin", "FogRendererMixin", "GameRendererMixin", "GlCommandEncoderMixin", "HudMixin", "KeyMappingAccessor", "LevelRendererMixin", "LocalPlayerMixin", "MouseHandlerAccessor", "ToastManagerMixin"],
+	"client": ["CameraMixin", "FogRendererMixin", "GameRendererMixin", "GlCommandEncoderMixin", "HudMixin", "KeyMappingAccessor", "LevelRendererMixin", "LocalPlayerMixin", "MouseHandlerAccessor", "MouseHandlerMixin", "ToastManagerMixin"],
 	"injectors": { "defaultRequire": 1 }
 }
