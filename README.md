@@ -40,6 +40,9 @@ Encounter 1.07) и рисуется прямо в кадре Sam, с глуби�
 Minecraft следует за ним. Плагин в Sam и мод в Minecraft только переводят данные друг другу (контракт —
 [docs/CONTRACT.md](docs/CONTRACT.md)).
 
+> Общая основа для мостов Sam ↔ другие игры (модель владения, протокол, план выделения ядра) —
+> [SeriousBridge](https://github.com/animeliodas/SeriousBridge); SemCraft 2 — первый мост на ней.
+
 > Сделано с помощью Claude Code (ИИ). Проверено в реальных играх: TFE 1.05 (уровень Hatshepsut) и TSE 1.07
 > (Sierra de Chiapas), Windows 11, NVIDIA RTX 5080. Подробности проверки и грабли — в [MODLOG.md](MODLOG.md).
 
