@@ -2,6 +2,7 @@ package dev.semcraft2;
 
 import java.util.function.Consumer;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
@@ -26,7 +27,9 @@ public class SemCraft implements ModInitializer {
 		ServerLifecycleEvents.SERVER_STARTED.register(WorldBridge::attach);
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> WorldBridge.detach());
 		ServerTickEvents.END_SERVER_TICK.register(WorldBridge::tick);
+		ServerEntityEvents.ENTITY_LOAD.register(WorldReset::onEntityLoad);
 		ServerEntityEvents.ENTITY_LOAD.register(SamMonsters::onEntityLoad);
+		ServerChunkEvents.CHUNK_LOAD.register((level, chunk, generated) -> WorldReset.onChunkLoad(level, chunk));
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> WorldBridge.onJoin(handler.player));
 		LOG.info("SemCraft 2 loaded");
 	}

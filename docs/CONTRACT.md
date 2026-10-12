@@ -50,6 +50,16 @@ Sam → MC
 - `{"t":"actors","l":[[id,x,feetY,z,height,width,health],...]}` Sam monsters within 96 m, every 2 ticks.
 - `{"t":"movers","l":[[i,x,y,z,m11,m12,m13,m21,m22,m23,m31,m32,m33],...]}` moving brushes that moved (see `.mov`).
   A mover that starts moving gives MC target blocks within 6 blocks of it a one-second redstone pulse.
+- `{"t":"chat","m":"..."}` Sam's chat line / `mc(...)`: "/..." runs as a command at the player (operator), its
+  output goes to MC's chat; anything else is said in MC's chat as Sam.
+- `{"t":"firework"}` the player lit a firework while gliding (Sam already boosts): MC uses one up from the hand that
+  holds it (main first) and launches a `FireworkRocketEntity` with the player (trail, bang, sound).
+- `{"t":"reset","what":"all"|"world"}` a level was entered: a new game (`all`: blocks, mobs and the inventory, which
+  gets the starter kit) or the next level / a loaded save (`world`: blocks and mobs). Sent once MC is linked.
+- Screens: `{"t":"screen","open":"inventory"|"chat"[,"text":"..."]}` open one (`"open":""` closes what's open);
+  `{"t":"cursor","x":0..1,"y":0..1}` (fraction of the view, every frame it moves), `{"t":"click","b":0|1|2,"down":b,
+  "shift":b}` (left, right, middle), `{"t":"char","c":codepoint}`, `{"t":"keydown","sc":usbScancode,"kc":sdlKeycode,
+  "mods":sdlKeymod}` (MC 26.3 is on SDL3; shift 0x1, ctrl 0x40), `{"t":"scrollgui","d":±1}`.
 - `{"t":"cmd","c":"..."}`, `{"t":"status"}`, `{"t":"spawn",...}`, `{"t":"pillar",...}` dev/test hooks.
 
 MC → Sam
@@ -65,6 +75,15 @@ MC → Sam
 - `{"t":"blocks","set":[x,y,z,...],"clear":[...]}` solid MC blocks appeared / went (Sam coords of minimum corners);
   Sam keeps invisible colliding block models for them.
 - `{"t":"level_ready","hash":"<hex>","blocks":N}` when the shell for a level is built.
+- `{"t":"gear","elytra":b,"hand":b,"fireworks":n}` an elytra on the chest, a firework in a hand (only that one can
+  be lit), fireworks in all; on change and every 2 s.
+- `{"t":"screen","open":false}` MC's screen closed (Sam's mouse is the view's again); `{"t":"screen","open":"Name"}`
+  MC opened a screen itself (a chest, a crafting table, a sign...): Sam goes into screen mode.
+- `{"t":"fluid","water":h,"lava":h,"eyes":b,"flow":[x,y,z]}` MC fluid at the player's feet (heights in blocks, flow a
+  unit vector or zero), every client tick while in one and once on leaving. Sam's player swims as MC's would.
+- `{"t":"shove","d":[x,y,z],"by":"piston"}` a piston moved the player this far (metres; ≤0.51 per axis per tick):
+  Sam moves him as much.
+- `{"t":"actorpush","id":N,"d":[x,y,z]}` a piston moved a Sam monster's proxy: Sam moves the monster.
 - `{"t":"log","m":"..."}` diagnostics printed to Sam's console.
 
 ### Frame shared memory `Local\SemCraft2Frame` (little-endian)
@@ -110,6 +129,12 @@ shell or the air, and moves mobs and items standing on it by the same step.
 - Sam's compositor draws a slot only if it is younger than 500 ms; otherwise draws nothing (no stale picture over
   menus). Nothing is drawn while Sam's menu/console covers the game or no game is running.
 - Sam quits → link closes → MC keeps running (the human closes it) and stops treating itself as attached.
+- Entering a level resets MC's world (`reset`). The world is void apart from Sam's shell, so anything else was built:
+  loaded chunks are cleaned at once, the others when they next load (per-chunk epoch in `semcraft2_reset.dat`);
+  entities carry their epoch as a tag and an older one is removed when it loads. The game's startup intro
+  (`sam_strIntroLevel`) doesn't count.
+- A MC screen open: Sam's actions carry no buttons or movement, and the view stays (what the mouse turns is taken
+  back out of the player's accumulated rotation; the offset is read back from a new player entity).
 
 ## Failure behaviour
 - Link down: Sam renders vanilla; MC renders its own view (window shown).

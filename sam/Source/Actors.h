@@ -15,6 +15,8 @@ namespace actors {
 void Step(CEntity *penPlayer, void (*pfnSend)(const std::string &));
 // Minecraft hit monster ulId for fDamage Sam hit points (applied on the next tick).
 void OnHit(ULONG ulId, FLOAT fDamage, BOOL bExplosion);
+// A Minecraft piston moved monster ulId's stand-in by vDelta metres (the monster moves on the next tick).
+void OnPush(ULONG ulId, const FLOAT3D &vDelta);
 void Reset(void);
 CTString Status(void);
 

@@ -1,6 +1,7 @@
 /* SemCraft 2 - Minecraft's elytra on Serious Sam's player. See Glide.h. */
 #include "StdH.h"
 #include "Glide.h"
+#include "Swim.h"
 
 #include <Engine/World/WorldSettings.h>
 
@@ -41,10 +42,10 @@ BOOL InWater(CEntity *pen) {
     || ((ctDn.ct_ulFlags & CTF_SWIMABLE) && pmen->en_fImmersionFactor >= 0.1f);
 };
 
-void OnGear(BOOL bElytra, INDEX ctFireworks) {
+void OnGear(BOOL bElytra, BOOL bFireworkInHand, INDEX ctFireworks) {
   _bElytra = bElytra;
   _ctFireworks = ctFireworks;
-  _bFirework = ctFireworks > 0;
+  _bFirework = bFireworkInHand;
 };
 
 BOOL Gliding(void) { return _bGliding; };
@@ -98,8 +99,8 @@ void Step(CEntity *penPlayer) {
   }
   CMovableEntity *pmen = (CMovableEntity *)penPlayer;
   const BOOL bOnGround = pmen->en_penReference != NULL;
-  // in water Sam swims (jump = up): no wings there
-  const BOOL bInWater = InWater(penPlayer);
+  // in water Sam swims (jump = up), Sam's or Minecraft's: no wings there
+  const BOOL bInWater = InWater(penPlayer) || swim::InFluid();
 
   if (!_bGliding) {
     // a jump pressed while falling, with an elytra on: the wings open
@@ -194,7 +195,7 @@ void Step(CEntity *penPlayer) {
 CTString Status(void) {
   CTString str;
   str.PrintF("elytra: %s%s%s, %u glides, %u boosts, last %.1f m flown / %.1f m down", _bElytra ? "worn" : "none",
-    _bFirework ? " (firework in hand)" : "", _bGliding ? " GLIDING" : "", _ctGlides, _ctBoosts, _dDistance, _dDrop);
+    _bFirework ? " (firework in hand)" : (_ctFireworks > 0 ? " (fireworks, none in hand)" : ""), _bGliding ? " GLIDING" : "", _ctGlides, _ctBoosts, _dDistance, _dDrop);
   return str;
 };
 

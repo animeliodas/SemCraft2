@@ -155,7 +155,8 @@ public final class LevelShell {
 			SemCraft.LOG.warn("couldn't read {}", file, e);
 		}
 
-		String key = name.toLowerCase(Locale.ROOT).replace('/', '\\');
+		// one key per level however Sam reached it (the command line's "Levels\..\Levels\X.wld" is "Levels\X.wld")
+		String key = normalize(name.toLowerCase(Locale.ROOT).replace('/', '\\'));
 		if (map.has(key)) {
 			return map.get(key).getAsInt();
 		}
@@ -169,6 +170,20 @@ public final class LevelShell {
 		}
 
 		return region;
+	}
+
+	/** A backslashed path with its "dir\.." steps taken out. */
+	static String normalize(final String path) {
+		java.util.ArrayDeque<String> parts = new java.util.ArrayDeque<>();
+		for (String p : path.split("\\\\")) {
+			if (p.equals("..") && !parts.isEmpty() && !parts.peekLast().equals("..")) {
+				parts.removeLast();
+			} else if (!p.isEmpty() && !p.equals(".")) {
+				parts.addLast(p);
+			}
+		}
+
+		return String.join("\\", parts);
 	}
 
 	/** Height (1..16) of the shell voxel at pos, or 0 if it isn't part of the current level's shell. */

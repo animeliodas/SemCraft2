@@ -45,6 +45,13 @@ BOOL ScreenCursor(FLOAT &fX, FLOAT &fY);
 extern FLOAT sc_fCursorSpeed;
 // A firework while gliding, if the player has one (right mouse button; also sc_Firework()).
 BOOL TryBoost(void);
+// A level was entered: "all" (a new game: Minecraft's world and the player's things) or "world" (the next level, a
+// loaded save). Sent to Minecraft once it's linked.
+void RequestReset(const char *strWhat);
+// A saved game was loaded: the player entity's own view offset is read back from it.
+void OnGameLoad(void);
+// Dev/test: open Minecraft's chat with strText typed.
+void DevChat(const char *strText);
 // dev: subsystems switched off (see Bridge.cpp)
 extern INDEX sc_iDisable;
 // Dev/test: open/close the inventory, click at a point of it (0..1), type text into it.

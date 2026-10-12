@@ -97,6 +97,12 @@ async def clean(ws) -> None:
 
 
 async def request(ws, message: dict, want: str, timeout: float = 2.0) -> dict:
+    # a status request gets two replies ("status" and "client"): the one an earlier request didn't wait for is stale
+    while True:
+        try:
+            await asyncio.wait_for(ws.recv(), timeout=0.01)
+        except asyncio.TimeoutError:
+            break
     await ws.send(json.dumps(message))
     end = time.time() + timeout
     while time.time() < end:

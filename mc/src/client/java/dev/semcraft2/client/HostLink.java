@@ -69,6 +69,11 @@ public final class HostLink extends WebSocketServer {
 				case "state" -> WorldBridge.samState(m.get("hp").getAsFloat(), !m.has("alive") || m.get("alive").getAsBoolean());
 				case "cmd" -> WorldBridge.command(m.get("c").getAsString());
 				case "chat" -> WorldBridge.chat(m.get("m").getAsString());
+				case "firework" -> WorldBridge.firework();
+				case "reset" -> {
+					SemCraft.LOG.info("Sam entered a level: reset {}", message);
+					dev.semcraft2.WorldReset.request(m.has("what") ? m.get("what").getAsString() : "world");
+				}
 				case "status" -> {
 					conn.send(WorldBridge.status());
 					Minecraft mc = Minecraft.getInstance();

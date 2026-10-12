@@ -46,14 +46,17 @@ public final class WorldBridge {
 		"effect give @a minecraft:saturation infinite 0 true",
 		// Sam's levels are big and Sam's camera is at eye height: build where you aim, far away
 		"attribute @p minecraft:block_interaction_range base set 48",
-		"attribute @p minecraft:entity_interaction_range base set 6",
-		// wings for Sam: jump again in the air to glide, a firework in hand + right mouse button to speed up
-		"item replace entity @a armor.chest with minecraft:elytra",
-		"give @a minecraft:firework_rocket 64"
+		"attribute @p minecraft:entity_interaction_range base set 6"
 	);
 
-	/** The build hotbar, given once; after that the player's choices stay (and are topped up, see refill). */
-	private static final List<String> HOTBAR = List.of(
+	/**
+	 * The starter kit, given once (and again by a new game, see {@link WorldReset}); after that the player's choices
+	 * stay (and are topped up, see refill). Wings for Sam: jump again in the air to glide, a firework in hand + right
+	 * mouse button to speed up.
+	 */
+	static final List<String> STARTER_KIT = List.of(
+		"item replace entity @a armor.chest with minecraft:elytra",
+		"item replace entity @a weapon.offhand with minecraft:firework_rocket 64",
 		"item replace entity @a hotbar.0 with minecraft:diamond_sword",
 		"item replace entity @a hotbar.1 with minecraft:grass_block 64",
 		"item replace entity @a hotbar.2 with minecraft:stone_bricks 64",
@@ -70,6 +73,7 @@ public final class WorldBridge {
 
 	static void attach(final MinecraftServer s) {
 		server = s;
+		WorldReset.attach(s);
 		LevelShell.onServerStarted();
 	}
 
@@ -77,9 +81,11 @@ public final class WorldBridge {
 		MinecraftServer s = server;
 		if (s != null) {
 			Movers.clearAll(s.overworld()); // the world is saved after this: no doors left standing where they were
+			WorldReset.save(s);
 		}
 
 		server = null;
+		WorldReset.detach();
 		LevelShell.detach();
 		SamMonsters.detach();
 	}
@@ -124,8 +130,8 @@ public final class WorldBridge {
 			}
 		}
 
-		return String.format(Locale.ROOT, "{\"t\":\"status\",\"active\":%b,\"build\":%b,\"samHp\":%.1f,\"player\":%s,\"mobs\":%d,\"samMonsters\":%d,\"shell\":%s,\"movers\":%s}",
-			SemCraft.active, SemCraft.buildMode, samHp, player, mobs, SamMonsters.count(), LevelShell.status(), Movers.status());
+		return String.format(Locale.ROOT, "{\"t\":\"status\",\"active\":%b,\"build\":%b,\"samHp\":%.1f,\"player\":%s,\"mobs\":%d,\"samMonsters\":%d,\"shell\":%s,\"movers\":%s,\"reset\":%s}",
+			SemCraft.active, SemCraft.buildMode, samHp, player, mobs, SamMonsters.count(), LevelShell.status(), Movers.status(), WorldReset.status());
 	}
 
 	/** Where Sam's player stands (Minecraft coordinates), from the camera messages; null until the first one. */
@@ -161,7 +167,9 @@ public final class WorldBridge {
 	static void tick(final MinecraftServer s) {
 		if (setupIn > 0 && --setupIn == 0) {
 			SETUP.forEach(WorldBridge::command);
-			HOTBAR.forEach(WorldBridge::command);
+			if (!s.getPlayerList().getPlayers().isEmpty() && s.getPlayerList().getPlayers().get(0).getInventory().isEmpty()) {
+				STARTER_KIT.forEach(WorldBridge::command); // a new world (an old one keeps the player's things)
+			}
 			refillIn = 200;
 		}
 
@@ -179,6 +187,7 @@ public final class WorldBridge {
 		}
 
 		gear(s);
+		WorldReset.tick(s);
 		LevelShell.tick(s);
 		Movers.tick(s.overworld(), s.getPlayerList().getPlayers().isEmpty() ? null : s.getPlayerList().getPlayers().get(0));
 		SamMonsters.tick(s);
@@ -213,7 +222,10 @@ public final class WorldBridge {
 	private static String lastGear = "";
 	private static int gearIn, gearRepeat;
 
-	/** What Sam's glide needs to know: an elytra on the chest, how many fireworks (sent on change, and every 2 s). */
+	/**
+	 * What Sam's glide needs to know: an elytra on the chest, a firework in a hand (only that one can be lit), how many
+	 * fireworks in all (sent on change, and every 2 s).
+	 */
 	private static void gear(final MinecraftServer s) {
 		if (--gearIn > 0 || s.getPlayerList().getPlayers().isEmpty()) {
 			return;
@@ -228,8 +240,9 @@ public final class WorldBridge {
 			}
 		}
 
-		String now = String.format(Locale.ROOT, "{\"t\":\"gear\",\"elytra\":%b,\"fireworks\":%d}",
-			player.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST).is(net.minecraft.world.item.Items.ELYTRA), fireworks);
+		String now = String.format(Locale.ROOT, "{\"t\":\"gear\",\"elytra\":%b,\"hand\":%b,\"fireworks\":%d}",
+			player.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST).is(net.minecraft.world.item.Items.ELYTRA),
+			fireworkHand(player) != null, fireworks);
 		gearIn = 5;
 		// on a change, and every 2 s anyway (Sam may have connected since, or restarted)
 		if (!now.equals(lastGear) || ++gearRepeat >= 8) {
@@ -239,7 +252,54 @@ public final class WorldBridge {
 		}
 	}
 
-	/** Blocks never run out: every stackable thing in the hotbar is topped up to a full stack (whatever the player chose). */
+	/** The hand holding a firework rocket (the main hand first, as Minecraft uses them), or null. */
+	private static net.minecraft.world.InteractionHand fireworkHand(final ServerPlayer player) {
+		for (net.minecraft.world.InteractionHand hand : net.minecraft.world.InteractionHand.values()) {
+			if (player.getItemInHand(hand).is(net.minecraft.world.item.Items.FIREWORK_ROCKET)) {
+				return hand;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Sam lit a firework while gliding (link thread): the rocket in hand is used up as Minecraft's own use would (one
+	 * fewer, unless creative), and it flies off with the player: its trail, bang and sound are Minecraft's. Sam's glide
+	 * does the boost itself.
+	 */
+	public static void firework() {
+		MinecraftServer s = server;
+		if (s == null) {
+			return;
+		}
+
+		s.execute(() -> {
+			if (s.getPlayerList().getPlayers().isEmpty()) {
+				return;
+			}
+
+			ServerPlayer player = s.getPlayerList().getPlayers().get(0);
+			net.minecraft.world.InteractionHand hand = fireworkHand(player);
+			if (hand == null) {
+				SemCraft.LOG.info("firework: none in hand");
+				return;
+			}
+
+			net.minecraft.world.item.ItemStack stack = player.getItemInHand(hand);
+			ServerLevel level = player.level();
+			level.addFreshEntity(new net.minecraft.world.entity.projectile.FireworkRocketEntity(level, stack.copyWithCount(1), player));
+			stack.consume(1, player);
+			gearIn = 0; // the count changed: tell Sam now
+			SemCraft.LOG.info("firework from the {}: {} left there", hand == net.minecraft.world.InteractionHand.MAIN_HAND ? "main hand" : "off hand",
+				player.getItemInHand(hand).getCount());
+		});
+	}
+
+	/**
+	 * Blocks never run out: every stackable thing in the hotbar is topped up to a full stack (whatever the player chose).
+	 * The off hand isn't: fireworks there get used up (more are in the inventory, E).
+	 */
 	private static void refill(final ServerPlayer player) {
 		net.minecraft.world.entity.player.Inventory inventory = player.getInventory();
 		for (int i = 0; i < net.minecraft.world.entity.player.Inventory.getSelectionSize(); i++) {
@@ -248,6 +308,18 @@ public final class WorldBridge {
 				stack.setCount(stack.getMaxStackSize());
 			}
 		}
+	}
+
+	/** A new game (WorldReset, server thread): the player starts again with the starter kit only. */
+	static void restartInventory(final ServerPlayer player) {
+		player.getInventory().clearContent();
+		player.containerMenu.setCarried(net.minecraft.world.item.ItemStack.EMPTY);
+		player.removeAllEffects();
+		player.setExperienceLevels(0);
+		player.setExperiencePoints(0);
+		SETUP.stream().filter(c -> c.startsWith("effect")).forEach(WorldBridge::command);
+		STARTER_KIT.forEach(WorldBridge::command);
+		gearIn = 0;
 	}
 
 	/**

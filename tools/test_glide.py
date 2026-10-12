@@ -60,7 +60,7 @@ async def flight(ws, log: SamLog, height: float, elytra: bool, boost: bool) -> t
 async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--game", default="tfe", choices=GAMES)
-    ap.add_argument("--level", default="01_Hatshepsut")
+    ap.add_argument("--level", default="11_AlleyOfSphinxes")  # flat: Hatshepsut has a ramp ahead
     ap.add_argument("--height", type=float, default=40.0)
     ap.add_argument("--no-restart", action="store_true")
     ap.add_argument("--watch-intro", action="store_true", help="let the level's intro play instead of clicking it away")

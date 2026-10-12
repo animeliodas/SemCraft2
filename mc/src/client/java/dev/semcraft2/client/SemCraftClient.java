@@ -46,6 +46,7 @@ public class SemCraftClient implements ClientModInitializer {
 
 	private static void tick(final Minecraft minecraft) {
 		ScreenInput.tick(minecraft);
+		Fluids.tick(minecraft);
 		// a death would leave the death screen over Sam's picture: respawn straight away
 		if (minecraft.player != null && minecraft.gui.screen() instanceof DeathScreen && --respawnIn <= 0) {
 			respawnIn = 40;

@@ -3,7 +3,7 @@
     uv run -q --with websockets python tools/test_playtest.py [--game tfe] [--height 40]
 
   1. opening the wings keeps the view's pitch (it used to snap level);
-  2. a firework from anywhere in the inventory boosts the glide (it used to need one in the main hand);
+  2. a firework in a hand boosts the glide and is used up there (see test_deeper.py: one only in the inventory doesn't);
   3. holding attack in build mode breaks oak planks (it used to hit once only);
   4. Minecraft's frames reach Sam at a good rate.
 Prints PASS/FAIL per check.
@@ -51,7 +51,7 @@ async def main() -> None:
         sam("sc_CloseNetricsa();", "cht_bGod=1;", "cht_bInvisible=1;", "con_iLastLines=0;")
         await clean(ws)
         await ws.send(json.dumps({"t": "cmd", "c": "item replace entity @p armor.chest with minecraft:elytra"}))
-        await ws.send(json.dumps({"t": "cmd", "c": "give @p minecraft:firework_rocket 16"}))
+        await ws.send(json.dumps({"t": "cmd", "c": "item replace entity @p weapon.offhand with minecraft:firework_rocket 16"}))
         await asyncio.sleep(3.0)
 
         # 1. the pitch survives opening the wings: look 15 degrees down first
@@ -68,14 +68,14 @@ async def main() -> None:
         results.append(("opening the wings keeps the view's pitch", ok,
                         f"gliding {gliding}, pitch {w0.get('pitch')} -> {w1.get('pitch')}"))
 
-        # 2. a firework from the inventory
+        # 2. a firework in a hand
         mark = len(MC_LOG.read_text(encoding="utf-8", errors="replace"))
         out = await log.after("sc_Firework();", "firework:", timeout=2.0)
         await asyncio.sleep(1.0)
         text = MC_LOG.read_text(encoding="utf-8", errors="replace")[mark:]
         lit = "firework: lit" in out
-        taken = "clear @p minecraft:firework_rocket 1" in text
-        results.append(("a firework from the inventory boosts the glide", lit and taken, f"{'lit' if lit else 'not lit'}, {'one taken' if taken else 'none taken'}"))
+        taken = "firework from the off hand: 15 left" in text
+        results.append(("a firework in a hand boosts the glide", lit and taken, f"{'lit' if lit else 'not lit'}, {'one used' if taken else 'none used'}"))
 
         # back on the ground, level view
         for _ in range(40):

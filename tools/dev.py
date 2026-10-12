@@ -18,6 +18,7 @@ Commands
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -68,9 +69,25 @@ def wait_log(name: str, text: str, seconds: float) -> bool:
     return False
 
 
+def backup_saves(name: str) -> None:
+    """Copy the game's SaveGame folder aside first (at most every 6 h): test runs start levels, every level start
+    autosaves into the quick-save slots, and those rotate the player's own quick saves out."""
+    src = game_dir(name) / "SaveGame"
+    root = DEV_DIR / "savegame_backup" / name
+    if not src.exists():
+        return
+    recent = [p for p in root.glob("*") if time.time() - p.stat().st_mtime < 6 * 3600] if root.exists() else []
+    if recent:
+        return
+    dst = root / time.strftime("%Y%m%d-%H%M%S")
+    shutil.copytree(src, dst)
+    print(f"saves backed up to {dst}")
+
+
 def start_sam(name: str, level: str | None) -> None:
     d = game_dir(name)
     exe = d / "Bin" / "SeriousSam_Custom.exe"
+    backup_saves(name)
     log = sam_log(name)
     if log.exists():
         log.unlink()

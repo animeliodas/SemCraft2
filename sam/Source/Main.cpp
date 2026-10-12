@@ -449,6 +449,45 @@ static void SC_OnGameStop(void) {
   bridge::OnGameStop();
 };
 
+// The game's intro (played as a game at startup, sam_strIntroLevel) isn't a level the player enters.
+static BOOL IsIntro(void) {
+  CWorld *pwo = IWorld::GetWorld();
+  CShellSymbol *pss = _pShell->GetSymbol("sam_strIntroLevel", TRUE);
+  if (pwo == NULL || pss == NULL || pss->ss_pvValue == NULL) return FALSE;
+  const CTFileName fnmIntro = *(CTString *)pss->ss_pvValue;
+  return fnmIntro != "" && stricmp(pwo->wo_fnmFileName.FileName().str_String, fnmIntro.FileName().str_String) == 0;
+};
+
+// A level entered: a new game starts Minecraft afresh (world and inventory); the next level or a loaded save gets a
+// clean world, the player keeps their things.
+static void SC_OnGameStart(void) {
+  if (IsIntro()) return;
+  bridge::RequestReset("all");
+};
+
+static void SC_OnChangeLevel(void) {
+  bridge::RequestReset("world");
+};
+
+static void SC_OnGameLoad(const CTFileName &fnmSave) {
+  bridge::OnGameLoad();
+  bridge::RequestReset("world");
+};
+
+// Dev: reset Minecraft's world as entering a level would ("all" or "world").
+static void SC_Reset(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  const CTString &strWhat = *NEXT_ARG(CTString *);
+  bridge::RequestReset(strWhat == "all" ? "all" : "world");
+};
+
+// Dev/test: open Minecraft's chat with a line typed.
+static void SC_Chat(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  const CTString &strText = *NEXT_ARG(CTString *);
+  bridge::DevChat(strText.str_String);
+};
+
 // Sam's chat (Talk, T) goes to Minecraft: "/..." runs there as a command, anything else is said in its chat. Such a
 // message isn't shown as Sam's own chat line (Minecraft's chat shows it, in its overlay).
 static BOOL SC_OnChatMessage(INDEX iClient, ULONG ulFrom, ULONG ulTo, CTString &strMessage) {
@@ -479,6 +518,9 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   events.m_rendering->OnPostDraw = &SC_OnPostDraw;
   events.m_world->OnWorldLoad = &SC_OnWorldLoad;
   events.m_game->OnGameStop = &SC_OnGameStop;
+  events.m_game->OnGameStart = &SC_OnGameStart;
+  events.m_game->OnChangeLevel = &SC_OnChangeLevel;
+  events.m_game->OnGameLoad = &SC_OnGameLoad;
   events.m_packet->OnPlayerAction = &SC_OnPlayerAction;
   events.m_packet->OnChatMessage = &SC_OnChatMessage;
 
@@ -503,6 +545,8 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Click", "CTString", &SC_Click);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Type", "CTString", &SC_Type);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_TriggerMover", "INDEX", &SC_TriggerMover);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Reset", "CTString", &SC_Reset);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Chat", "CTString", &SC_Chat);
 
   const char *strDev = getenv("SEMCRAFT2_DEV");
   _bDevHook = strDev != NULL && strDev[0] == '1';

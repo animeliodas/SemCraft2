@@ -20,14 +20,33 @@ struct Hit {
 };
 
 static std::vector<Hit> _aHits;
+// pistons' pushes, summed per monster
+static std::map<ULONG, FLOAT3D> _mapPushes;
 // the monsters last sent, by entity ID (to find them again when a hit comes back)
 static std::map<ULONG, CEntityPointer> _mapSent;
 static ULONG _ctTicks = 0;
 static ULONG _ctHitsApplied = 0;
+static ULONG _ctPushesApplied = 0;
 
 void Reset(void) {
   _aHits.clear();
   _mapSent.clear();
+  _mapPushes.clear();
+};
+
+void OnPush(ULONG ulId, const FLOAT3D &vDelta) {
+  if (_mapPushes.size() < 64 || _mapPushes.count(ulId)) _mapPushes[ulId] += vDelta;
+};
+
+static BOOL SafeMove(CEntity *pen, const FLOAT3D &vDelta) {
+  __try {
+    CPlacement3D pl = pen->GetPlacement();
+    pl.pl_PositionVector += vDelta;
+    pen->SetPlacement(pl);
+    return TRUE;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return FALSE;
+  }
 };
 
 void OnHit(ULONG ulId, FLOAT fDamage, BOOL bExplosion) {
@@ -72,6 +91,16 @@ void Step(CEntity *penPlayer, void (*pfnSend)(const std::string &)) {
   }
   _aHits.clear();
 
+  // and Minecraft's pistons move them
+  for (std::map<ULONG, FLOAT3D>::iterator itPush = _mapPushes.begin(); itPush != _mapPushes.end(); ++itPush) {
+    std::map<ULONG, CEntityPointer>::iterator it = _mapSent.find(itPush->first);
+    if (it == _mapSent.end()) continue;
+    CEntity *pen = it->second;
+    if (pen == NULL || (pen->GetFlags() & ENF_DELETED) || !(pen->GetFlags() & ENF_ALIVE)) continue;
+    if (SafeMove(pen, itPush->second)) _ctPushesApplied++;
+  }
+  _mapPushes.clear();
+
   if (penPlayer == NULL || (_ctTicks & 1) != 0) return;
 
   // the living monsters near the player: [id, x, y, z (feet), height, width, health]
@@ -111,7 +140,7 @@ void Step(CEntity *penPlayer, void (*pfnSend)(const std::string &)) {
 
 CTString Status(void) {
   CTString str;
-  str.PrintF("monsters: %d mirrored, %u Minecraft hits applied", (INDEX)_mapSent.size(), _ctHitsApplied);
+  str.PrintF("monsters: %d mirrored, %u Minecraft hits applied, %u piston pushes", (INDEX)_mapSent.size(), _ctHitsApplied, _ctPushesApplied);
   return str;
 };
 

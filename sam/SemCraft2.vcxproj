@@ -22,6 +22,7 @@
     <ClInclude Include="Source\Actors.h" />
     <ClInclude Include="Source\Blocks.h" />
     <ClInclude Include="Source\Glide.h" />
+    <ClInclude Include="Source\Swim.h" />
     <ClInclude Include="Source\Movers.h" />
   </ItemGroup>
   <ItemGroup>
@@ -37,6 +38,7 @@
     <ClCompile Include="Source\Alloc.cpp" />
     <ClCompile Include="Source\Blocks.cpp" />
     <ClCompile Include="Source\Glide.cpp" />
+    <ClCompile Include="Source\Swim.cpp" />
     <ClCompile Include="Source\Movers.cpp" />
     <ClCompile Include="Source\GlDraw.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>

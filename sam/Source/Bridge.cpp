@@ -9,6 +9,7 @@
 #include "Blocks.h"
 #include "Movers.h"
 #include "Glide.h"
+#include "Swim.h"
 
 #include <Engine/World/WorldRayCasting.h>
 #include <Engine/Base/Input.h>
@@ -47,6 +48,10 @@ struct Hurt {
 static std::deque<Hurt> _aHurts;
 // Minecraft explosions' knockback for Sam's player, m/s (the next simulation tick gives it)
 static std::deque<FLOAT3D> _avPushes;
+// Minecraft's pistons moving Sam's player, metres (the next simulation tick moves him)
+static std::deque<FLOAT3D> _avShoves;
+// a level was entered: Minecraft's world is to be reset ("all" or "world"), sent once Minecraft is there
+static std::string _strPendingReset;
 static levelx::Exported _level;
 static BOOL _bLevelSent = FALSE;
 static INDEX _iLinkGeneration = -1;
@@ -55,12 +60,21 @@ static BOOL _bBuild = FALSE;
 static BOOL _bScreen = FALSE;
 static FLOAT _fCursorX = 0.5f, _fCursorY = 0.5f, _fCursorSentX = -1.0f, _fCursorSentY = -1.0f;
 // view rotation the mouse made while a screen was open, taken back out of every action from then on
-static ANGLE3D _aFreeze(0, 0, 0);
 static ANGLE3D _aLastRaw(0, 0, 0);
 static BOOL _bHaveLastRaw = FALSE;
+// What the player's actions carry on top of their own rotation: the test turns, minus what the mouse turned while a
+// Minecraft screen was open. Actions carry the accumulated rotation (Player.es applies their difference), so it stays
+// added from then on. A new player entity (a level, a new game, a loaded save) has its own: it's read back from it, or
+// the first action would jump the view by the difference (see ResyncOffset).
+static ANGLE3D _aOffset(0, 0, 0);
+static BOOL _bResyncOffset = TRUE;
+static ULONG _ulOffsetPlayer = 0;
 static BOOL _bKeyE = FALSE;
 static BOOL _bBoostKey = FALSE;
 static BOOL _abKeys[256];
+// keys already down when a screen opened: letting go of them isn't for the screen
+static BOOL _abHeldAtOpen[256];
+static BOOL _bSlash = FALSE;
 static INDEX _iShowWeaponBefore = -1;
 static ULONG _ulCamFrame = 0;
 static ULONG _ctTicks = 0;
@@ -175,11 +189,13 @@ void OnWorldLoad(CWorld *pwo, const CTFileName &fnmWorld) {
   weapons::Reset();
   actors::Reset();
   blocks::Reset(TRUE);
+  _bResyncOffset = TRUE; // a new player entity
   SendLevel();
 };
 
 void OnGameStop(void) {
   SetBuildMode(FALSE);
+  _bResyncOffset = TRUE;
   _aHurts.clear();
   _avPushes.clear();
   weapons::Reset();
@@ -187,6 +203,8 @@ void OnGameStop(void) {
   blocks::Reset(FALSE);
   movers::Reset(); // their entity pointers must go before the world does
   glide::Reset();
+  swim::Reset();
+  _avShoves.clear();
 };
 
 // ---------------------------------------------------------------------------------------------------------
@@ -235,15 +253,30 @@ BOOL ScreenCursor(FLOAT &fX, FLOAT &fY) {
   return _bScreen;
 };
 
-static void OpenScreen(void) {
-  if (!link::Connected()) return;
+// A Minecraft screen is over Sam from now on: the cursor starts in the middle, keys already down don't count, and
+// Minecraft lets go of what build mode held.
+static void EnterScreen(void) {
   _bScreen = TRUE;
   _fCursorX = _fCursorY = 0.5f;
   _fCursorSentX = _fCursorSentY = -1.0f;
-  memset(_abKeys, 0, sizeof(_abKeys));
-  for (INDEX vk = 0; vk < 256; vk++) _abKeys[vk] = (GetAsyncKeyState(vk) & 0x8000) != 0; // keys already down don't count
-  Send("{\"t\":\"screen\",\"open\":\"inventory\"}");
-  CPrintF("[SemCraft2] Minecraft inventory open: the mouse moves the cursor, E closes it\n");
+  for (INDEX vk = 0; vk < 256; vk++) {
+    _abKeys[vk] = (GetAsyncKeyState(vk) & 0x8000) != 0;
+    _abHeldAtOpen[vk] = _abKeys[vk];
+  }
+  if (_bLMB) { Send("{\"t\":\"key\",\"k\":\"attack\",\"down\":false}"); _bLMB = FALSE; }
+  if (_bRMB) { Send("{\"t\":\"key\",\"k\":\"use\",\"down\":false}"); _bRMB = FALSE; }
+};
+
+// Sam asks Minecraft for a screen: "inventory" (creative, every block and item) or "chat" (its commands work there,
+// strText starts the line).
+static void OpenScreen(const char *strWhat, const char *strText) {
+  if (!link::Connected() || _bScreen) return;
+  EnterScreen();
+  std::string str = std::string("{\"t\":\"screen\",\"open\":\"") + strWhat + "\"";
+  if (strText != NULL) str += std::string(",\"text\":\"") + json::Escape(strText) + "\"";
+  Send(str + "}");
+  CPrintF("[SemCraft2] Minecraft %s open: the mouse moves the cursor, %s closes it\n", strWhat,
+    strcmp(strWhat, "chat") == 0 ? "Enter or Escape" : "E");
 };
 
 // Minecraft closed it (or Sam's menu came up): back to Sam
@@ -253,16 +286,32 @@ static void ScreenClosed(BOOL bTellMinecraft) {
   if (bTellMinecraft) Send("{\"t\":\"screen\",\"open\":\"\"}");
 };
 
-// GLFW key codes of the keys a screen wants besides text (0 = not forwarded as a key)
-static int GlfwKey(int iVK) {
-  if (iVK >= 'A' && iVK <= 'Z') return iVK;
-  if (iVK >= '0' && iVK <= '9') return iVK;
+// The keys a screen wants besides text, as Minecraft 26.3 (SDL3) sees them: the scancode (USB usage id) and the
+// keycode (SDL_Keycode; layout-independent here, as the shortcuts want). FALSE: not forwarded as a key.
+static BOOL SdlKey(int iVK, int &iScan, int &iCode) {
+  if (iVK >= 'A' && iVK <= 'Z') { iScan = 4 + iVK - 'A'; iCode = 'a' + iVK - 'A'; return TRUE; }
+  if (iVK >= '1' && iVK <= '9') { iScan = 30 + iVK - '1'; iCode = iVK; return TRUE; }
+  if (iVK == '0') { iScan = 39; iCode = '0'; return TRUE; }
+  if (iVK >= VK_F1 && iVK <= VK_F12) { iScan = 58 + iVK - VK_F1; iCode = 0x40000000 | iScan; return TRUE; }
   switch (iVK) {
-    case VK_SPACE: return 32;   case VK_RETURN: return 257; case VK_TAB: return 258;   case VK_BACK: return 259;
-    case VK_DELETE: return 261; case VK_RIGHT: return 262;  case VK_LEFT: return 263;  case VK_DOWN: return 264;
-    case VK_UP: return 265;     case VK_HOME: return 268;   case VK_END: return 269;
+    case VK_RETURN: iScan = 40; iCode = 13; return TRUE;
+    case VK_BACK:   iScan = 42; iCode = 8; return TRUE;
+    case VK_TAB:    iScan = 43; iCode = 9; return TRUE;
+    case VK_SPACE:  iScan = 44; iCode = 32; return TRUE;
+    case VK_DELETE: iScan = 76; iCode = 127; return TRUE;
+    case VK_INSERT: iScan = 73; break;
+    case VK_HOME:   iScan = 74; break;
+    case VK_PRIOR:  iScan = 75; break;
+    case VK_END:    iScan = 77; break;
+    case VK_NEXT:   iScan = 78; break;
+    case VK_RIGHT:  iScan = 79; break;
+    case VK_LEFT:   iScan = 80; break;
+    case VK_DOWN:   iScan = 81; break;
+    case VK_UP:     iScan = 82; break;
+    default: return FALSE;
   }
-  return 0;
+  iCode = 0x40000000 | iScan; // SDLK_* of keys without a character
+  return TRUE;
 };
 
 // While a screen is open: clicks, keys and the characters they type go to it (the layout is the keyboard's).
@@ -282,7 +331,7 @@ static void PollScreen(void) {
 
   const BOOL bShift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
   const BOOL bCtrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-  const int iMods = (bShift ? 1 : 0) | (bCtrl ? 2 : 0);
+  const int iMods = (bShift ? 0x0001 : 0) | (bCtrl ? 0x0040 : 0); // SDL_KMOD_LSHIFT, SDL_KMOD_LCTRL
 
   if (_fCursorX != _fCursorSentX || _fCursorY != _fCursorSentY) {
     char str[96];
@@ -300,6 +349,12 @@ static void PollScreen(void) {
     if (bDown == _abKeys[vk]) continue;
     _abKeys[vk] = bDown;
     char str[96];
+    // held since before the screen opened: its release isn't the screen's
+    if (!bDown && _abHeldAtOpen[vk]) {
+      _abHeldAtOpen[vk] = FALSE;
+      continue;
+    }
+    if (bDown) _abHeldAtOpen[vk] = FALSE;
     if (vk == VK_LBUTTON || vk == VK_RBUTTON || vk == VK_MBUTTON) {
       const int iButton = vk == VK_LBUTTON ? 0 : (vk == VK_RBUTTON ? 1 : 2);
       _snprintf(str, sizeof(str), "{\"t\":\"click\",\"b\":%d,\"down\":%s,\"shift\":%s}", iButton, bDown ? "true" : "false", bShift ? "true" : "false");
@@ -307,9 +362,9 @@ static void PollScreen(void) {
       continue;
     }
     if (!bDown) continue;
-    const int iGlfw = GlfwKey(vk);
-    if (iGlfw != 0) {
-      _snprintf(str, sizeof(str), "{\"t\":\"keydown\",\"k\":%d,\"mods\":%d}", iGlfw, iMods);
+    int iScan = 0, iCode = 0;
+    if (SdlKey(vk, iScan, iCode)) {
+      _snprintf(str, sizeof(str), "{\"t\":\"keydown\",\"sc\":%d,\"kc\":%d,\"mods\":%d}", iScan, iCode, iMods);
       Send(str);
     }
     // the character it types, if any (not with Ctrl, not the control characters)
@@ -326,7 +381,11 @@ static void PollScreen(void) {
 
 // Dev/test hooks (work with Sam's window in the background): open/close the inventory, click at a point, type.
 void DevScreen(BOOL bOpen) {
-  if (bOpen) OpenScreen(); else ScreenClosed(TRUE);
+  if (bOpen) OpenScreen("inventory", NULL); else ScreenClosed(TRUE);
+};
+
+void DevChat(const char *strText) {
+  OpenScreen("chat", strText);
 };
 
 void DevClick(FLOAT fX, FLOAT fY, INDEX iButton) {
@@ -353,16 +412,37 @@ void DevType(const char *strText) {
   }
 };
 
-// A firework while gliding, if the player has one (Minecraft takes one away).
+// A firework while gliding, if the player holds one (Minecraft uses it up and launches it).
 BOOL TryBoost(void) {
   if (!glide::Gliding() || !glide::FireworkInHand()) return FALSE;
   if (!glide::Boost()) return FALSE;
-  Send("{\"t\":\"cmd\",\"c\":\"clear @p minecraft:firework_rocket 1\"}");
+  Send("{\"t\":\"firework\"}");
   return TRUE;
+};
+
+// Sam entered a level: a new game resets Minecraft's world and the player's things ("all"), the next level or a
+// loaded save only the world ("world").
+void RequestReset(const char *strWhat) {
+  if (_strPendingReset != "all") _strPendingReset = strWhat;
+  CPrintF("[SemCraft2] level entered: Minecraft's %s to be reset\n", strcmp(strWhat, "all") == 0 ? "world and inventory" : "world");
 };
 
 static void PollInput(void) {
   if (sc_iDisable & 128) return;
+
+  // Sam's chat line (T) while playing: Minecraft's chat opens instead (its commands work there)
+  CGameAPI *pGame = GetGameAPI();
+  if (!_bScreen && link::Connected() && pGame->IsGameOn() && !pGame->IsMenuOn() && pGame->GetConState() == 5) {
+    HWND hwnd = GetForegroundWindow();
+    DWORD dwPid = 0;
+    GetWindowThreadProcessId(hwnd, &dwPid);
+    if (dwPid == GetCurrentProcessId()) {
+      pGame->SetConState(0);
+      OpenScreen("chat", "");
+      return;
+    }
+  }
+
   const BOOL bPlaying = Playing();
 
   if (_bScreen) {
@@ -390,10 +470,13 @@ static void PollInput(void) {
   if (bBoostKey && !_bBoostKey) TryBoost();
   _bBoostKey = bBoostKey;
 
-  // E opens Minecraft's inventory
+  // E opens Minecraft's inventory, / its chat with a command started
   const BOOL bKeyE = bPlaying && KeyDown('E');
-  if (bKeyE && !_bKeyE) OpenScreen();
+  if (bKeyE && !_bKeyE) OpenScreen("inventory", NULL);
   _bKeyE = bKeyE;
+  const BOOL bSlash = bPlaying && KeyDown(VK_OEM_2);
+  if (bSlash && !_bSlash) OpenScreen("chat", "/");
+  _bSlash = bSlash;
   if (_bScreen) return;
 
   // B toggles build mode
@@ -434,8 +517,27 @@ INDEX sc_iTestSelect = 0;
 INDEX sc_iTestWalk = 0;
 INDEX sc_iTestTurn = 0;
 FLOAT sc_fTestTurnH = 0.0f, sc_fTestTurnP = 0.0f;
-// the turn so far: actions carry the accumulated rotation, so the offset stays added from then on
-static ANGLE3D _aTestTurn(0, 0, 0);
+
+// Player.es (class 401, both games): m_aLastRotation (what the last applied action carried) and m_aLocalRotation (the
+// rotation the player's actions are composed from: the mouse adds to it)
+static const ULONG PROP_LAST_ROTATION = (401UL << 8) | 151;
+static const ULONG PROP_LOCAL_ROTATION = (401UL << 8) | 154;
+
+static void ResyncOffset(CEntity *pen) {
+  CEntityProperty *pepLast = IWorld::PropertyForId(LibClassHolder(pen), PROP_LAST_ROTATION);
+  CEntityProperty *pepLocal = IWorld::PropertyForId(LibClassHolder(pen), PROP_LOCAL_ROTATION);
+  _aOffset = ANGLE3D(0, 0, 0);
+  if (pepLast != NULL && pepLocal != NULL) {
+    _aOffset = *(ANGLE3D *)((UBYTE *)pen + pepLast->ep_slOffset) - *(ANGLE3D *)((UBYTE *)pen + pepLocal->ep_slOffset);
+  }
+  _ulOffsetPlayer = pen->en_ulID;
+  _bResyncOffset = FALSE;
+  _bHaveLastRaw = FALSE;
+};
+
+void OnGameLoad(void) {
+  _bResyncOffset = TRUE;
+};
 
 void OnPlayerAction(CPlayerAction &pa, BOOL bFresh) {
   if (sc_iDisable & 64) return;
@@ -445,26 +547,27 @@ void OnPlayerAction(CPlayerAction &pa, BOOL bFresh) {
     sc_iTestFire--;
     pa.pa_ulButtons |= PLACT_FIRE;
   }
-  if (bFresh && sc_iTestTurn > 0) {
-    sc_iTestTurn--;
-    _aTestTurn(1) += sc_fTestTurnH;
-    _aTestTurn(2) += sc_fTestTurnP;
-  }
-  pa.pa_aRotation += _aTestTurn;
-
-  // Minecraft's elytra: a jump in the air opens the wings, walking is off while gliding
-  glide::OnAction(pa, bFresh);
-
-  // a Minecraft screen open: the mouse moves its cursor instead of the view (actions carry the accumulated rotation,
-  // so what the mouse turned while it was open stays taken out from then on)
+  // the view turns by the test hook; and while a Minecraft screen is open the mouse moves its cursor (PollScreen)
+  // instead of the view, so what it turned is taken back out (see _aOffset)
+  CEntity *penPlayer = LocalPlayer();
+  if (penPlayer != NULL && (_bResyncOffset || penPlayer->en_ulID != _ulOffsetPlayer)) ResyncOffset(penPlayer);
   if (bFresh) {
-    if (_bHaveLastRaw && _bScreen) {
-      _aFreeze += pa.pa_aRotation - _aLastRaw; // (the cursor follows the mouse every frame, see PollScreen)
+    if (sc_iTestTurn > 0) {
+      sc_iTestTurn--;
+      _aOffset(1) += sc_fTestTurnH;
+      _aOffset(2) += sc_fTestTurnP;
     }
+    if (_bScreen && _bHaveLastRaw) _aOffset -= pa.pa_aRotation - _aLastRaw;
     _aLastRaw = pa.pa_aRotation;
     _bHaveLastRaw = TRUE;
   }
-  pa.pa_aRotation -= _aFreeze;
+  pa.pa_aRotation += _aOffset;
+
+  // Minecraft's elytra: a jump in the air opens the wings, walking is off while gliding
+  glide::OnAction(pa, bFresh);
+  // Minecraft's water: swimming takes the input over
+  swim::OnAction(pa, bFresh);
+
   if (_bScreen) {
     pa.pa_ulButtons = 0;
     pa.pa_vTranslation = FLOAT3D(0, 0, 0);
@@ -502,6 +605,18 @@ static INDEX DamageTypeFor(const std::string &strSource) {
 static BOOL SafeInflict(CEntity *penPlayer, INDEX iType, FLOAT fDamage, const FLOAT3D &vHit, const FLOAT3D &vDir) {
   __try {
     penPlayer->InflictDirectDamage(penPlayer, penPlayer, (DamageType)iType, fDamage, vHit, vDir);
+    return TRUE;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return FALSE;
+  }
+};
+
+// Moved by vDelta metres, as a piston moves him (Minecraft already found it free there).
+static BOOL SafeMove(CEntity *pen, const FLOAT3D &vDelta) {
+  __try {
+    CPlacement3D pl = pen->GetPlacement();
+    pl.pl_PositionVector += vDelta;
+    pen->SetPlacement(pl);
     return TRUE;
   } __except (EXCEPTION_EXECUTE_HANDLER) {
     return FALSE;
@@ -560,15 +675,44 @@ static void Handle(const std::string &strMsg) {
     }
 
   } else if (strType == "screen") {
+    // Minecraft closed its screen, or opened one itself (a chest, a crafting table, a sign...): Sam follows
     bool bOpen = true;
-    if (json::GetBool(strMsg, "open", bOpen) && !bOpen) ScreenClosed(FALSE);
+    std::string strOpen;
+    if (json::GetBool(strMsg, "open", bOpen) && !bOpen) {
+      ScreenClosed(FALSE);
+    } else if (json::GetString(strMsg, "open", strOpen) && !strOpen.empty() && !_bScreen) {
+      EnterScreen();
+      CPrintF("[SemCraft2] Minecraft opened %s: the mouse moves the cursor\n", strOpen.c_str());
+    }
 
   } else if (strType == "gear") {
-    bool bElytra = false;
+    bool bElytra = false, bHand = false;
     double dFireworks = 0;
     json::GetBool(strMsg, "elytra", bElytra);
+    json::GetBool(strMsg, "hand", bHand);
     json::GetNumber(strMsg, "fireworks", dFireworks);
-    glide::OnGear(bElytra, (INDEX)dFireworks);
+    glide::OnGear(bElytra, bHand, (INDEX)dFireworks);
+
+  } else if (strType == "fluid") {
+    double dWater = 0, dLava = 0, adFlow[3] = { 0, 0, 0 };
+    bool bEyes = false;
+    json::GetNumber(strMsg, "water", dWater);
+    json::GetNumber(strMsg, "lava", dLava);
+    json::GetBool(strMsg, "eyes", bEyes);
+    json::GetNumbers(strMsg, "flow", adFlow, 3);
+    swim::OnFluid((FLOAT)dWater, (FLOAT)dLava, bEyes, FLOAT3D((FLOAT)adFlow[0], (FLOAT)adFlow[1], (FLOAT)adFlow[2]));
+
+  } else if (strType == "shove") {
+    double adD[3] = { 0, 0, 0 };
+    if (json::GetNumbers(strMsg, "d", adD, 3) == 3 && _avShoves.size() < 32) {
+      _avShoves.push_back(FLOAT3D((FLOAT)adD[0], (FLOAT)adD[1], (FLOAT)adD[2]));
+    }
+
+  } else if (strType == "actorpush") {
+    double dId = 0, adD[3] = { 0, 0, 0 };
+    if (json::GetNumber(strMsg, "id", dId) && json::GetNumbers(strMsg, "d", adD, 3) == 3) {
+      actors::OnPush((ULONG)dId, FLOAT3D((FLOAT)adD[0], (FLOAT)adD[1], (FLOAT)adD[2]));
+    }
 
   } else if (strType == "trigger") {
     // Minecraft's redstone reached one of Sam's doors or lifts
@@ -610,6 +754,10 @@ void OnFrame(void) {
   }
 
   if (!_bLevelSent) SendLevel();
+  if (!_strPendingReset.empty() && link::Connected()) {
+    Send("{\"t\":\"reset\",\"what\":\"" + _strPendingReset + "\"}");
+    _strPendingReset.clear();
+  }
 
   std::string strMsg;
   for (INDEX i = 0; i < 256 && link::Poll(strMsg); i++) {
@@ -657,9 +805,21 @@ void OnStep(void) {
         CPrintF("^cff0000[SemCraft2]^r pushing the player crashed inside the game; Minecraft damage is off for this session\n");
       }
     }
+
+    // and its pistons move him
+    FLOAT3D vShove(0, 0, 0);
+    while (!_avShoves.empty()) {
+      vShove += _avShoves.front();
+      _avShoves.pop_front();
+    }
+    if (vShove.Length() > 0.0001f && !_bHurtBroken && !SafeMove(penPlayer, vShove)) {
+      _bHurtBroken = TRUE;
+      CPrintF("^cff0000[SemCraft2]^r moving the player crashed inside the game; Minecraft damage is off for this session\n");
+    }
   } else {
     _aHurts.clear();
     _avPushes.clear();
+    _avShoves.clear();
   }
 
   // Sam's guns hurt Minecraft's mobs
@@ -671,9 +831,10 @@ void OnStep(void) {
     if (!(sc_iDisable & 8)) movers::Step(&Send);
   }
 
-  // Minecraft's elytra on Sam's player
+  // Minecraft's elytra on Sam's player, and its water and lava
   if (GetGameAPI()->IsGameOn() && !(sc_iDisable & 16)) {
     glide::Step(penPlayer);
+    swim::Step(penPlayer);
   }
 
   // and Minecraft's blocks are solid here
@@ -719,10 +880,10 @@ BOOL AimPoint(FLOAT3D &vHit) {
 
 CTString Status(void) {
   CTString str;
-  str.PrintF("link: %s (generation %d), level: %s (%d tris, %s), build: %s, cam frames sent: %u; %s",
+  str.PrintF("link: %s (generation %d), level: %s (%d tris, %s), build: %s, screen: %s, cam frames sent: %u; %s",
     link::Connected() ? "connected" : "waiting for Minecraft on 127.0.0.1:25610", link::Generation(),
     _level.bValid ? _level.strName.c_str() : "none", _level.ctTris, _bLevelSent ? "sent" : "not sent",
-    _bBuild ? "on" : "off", _ulCamFrame, (weapons::Status() + "; " + actors::Status() + "; " + blocks::Status() + "; " + movers::Status() + "; " + glide::Status()).str_String);
+    _bBuild ? "on" : "off", _bScreen ? "open" : "none", _ulCamFrame, (weapons::Status() + "; " + actors::Status() + "; " + blocks::Status() + "; " + movers::Status() + "; " + glide::Status() + "; " + swim::Status()).str_String);
   return str;
 };
 

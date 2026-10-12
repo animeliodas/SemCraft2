@@ -48,6 +48,7 @@ public final class SamMonsters {
 	private static final Map<Integer, Long> idOf = new HashMap<>();
 	private static final Map<Long, Integer> missing = new HashMap<>();
 	private static int meleeIn;
+	private static int logged, loggedLists;
 
 	private SamMonsters() {
 	}
@@ -125,6 +126,10 @@ public final class SamMonsters {
 
 		double[][] list = latest.getAndSet(null);
 		if (list != null) {
+			if (list.length > 0 && loggedLists++ < 5) {
+				SemCraft.LOG.info("Sam monsters near the player: {}", list.length);
+			}
+
 			sync(level, list);
 		}
 
@@ -145,6 +150,9 @@ public final class SamMonsters {
 			if (v == null || v.isRemoved()) {
 				v = EntityTypes.VILLAGER.create(level, EntitySpawnReason.COMMAND);
 				if (v == null) {
+					if (logged++ < 20) {
+						SemCraft.LOG.warn("Sam monster {}: no villager for its stand-in", id);
+					}
 					continue;
 				}
 
@@ -163,10 +171,17 @@ public final class SamMonsters {
 				proxies.put(id, v); // before adding: the load event must not take it for a stale one
 				if (!level.addFreshEntity(v)) {
 					proxies.remove(id);
+					if (logged++ < 20) {
+						SemCraft.LOG.warn("Sam monster {}: the world refused its stand-in at {} {} {}", id, x, y, z);
+					}
 					continue;
 				}
 
 				idOf.put(v.getId(), id);
+				if (logged++ < 20) {
+					SemCraft.LOG.info(String.format(Locale.ROOT, "Sam monster %d: stand-in at %.1f %.1f %.1f, %.1f high, %s", id, x, y, z, a[4],
+						v.isRemoved() ? "removed at once" : "in the world"));
+				}
 			} else {
 				v.setPos(x, y, z);
 			}
@@ -181,6 +196,10 @@ public final class SamMonsters {
 
 			int n = missing.merge(e.getKey(), 1, Integer::sum);
 			if (n > 3 || e.getValue().isRemoved()) {
+				if (logged++ < 20) {
+					SemCraft.LOG.info("Sam monster {}: stand-in gone ({})", e.getKey(), e.getValue().isRemoved() ? e.getValue().getRemovalReason() : "not in Sam's list");
+				}
+
 				idOf.remove(e.getValue().getId());
 				e.getValue().discard();
 				missing.remove(e.getKey());
@@ -204,6 +223,21 @@ public final class SamMonsters {
 				}
 			}
 		}
+	}
+
+	/** A piston moved a proxy (server thread, Entity.move): Sam's monster is moved as much. */
+	public static void onPistonPush(final Entity proxy, final net.minecraft.world.phys.Vec3 d) {
+		Long id = idOf.get(proxy.getId());
+		if (id == null || d.lengthSqr() < 1.0E-8) {
+			return;
+		}
+
+		SemCraft.events.accept(String.format(Locale.ROOT, "{\"t\":\"actorpush\",\"id\":%d,\"d\":[%.4f,%.4f,%.4f]}", id, d.x, d.y, d.z));
+	}
+
+	/** A reset discarded every entity: the proxies are made again from Sam's next list. */
+	static void forget() {
+		clear();
 	}
 
 	private static void clear() {
