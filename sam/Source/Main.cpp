@@ -580,5 +580,6 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
 CLASSICSPATCH_PLUGIN_SHUTDOWN(HIniConfig props) {
   bridge::Shutdown();
   compositor::Shutdown(FALSE);
+  devhook::Shutdown();
   CPrintF("[SemCraft2] shut down\n");
 };
