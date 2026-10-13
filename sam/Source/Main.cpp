@@ -474,6 +474,35 @@ static void SC_OnGameLoad(const CTFileName &fnmSave) {
   bridge::RequestReset("world");
 };
 
+// Dev: the level's world links (CWorldLink, class 214; property 2 is the world it leads to). i < 0 lists them, i >= 0
+// takes link i as the player reaching it would (the next level).
+static const ULONG PROP_WORLDLINK_WORLD = (214UL << 8) | 2;
+
+static void SC_WorldLink(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  const INDEX iTake = NEXT_ARG(INDEX);
+  CWorld *pwo = IWorld::GetWorld();
+  if (pwo == NULL) return;
+  INDEX i = 0;
+  FOREACHINDYNAMICCONTAINER(pwo->wo_cenEntities, CEntity, iten) {
+    CEntity *pen = &*iten;
+    if ((pen->GetFlags() & ENF_DELETED) || !IsOfClass(pen, "World link")) continue;
+    CEntityProperty *pep = IWorld::PropertyForId(LibClassHolder(pen), PROP_WORLDLINK_WORLD);
+    CTString fnm;
+    if (pep != NULL) fnm = *(CTString *)((UBYTE *)pen + pep->ep_slOffset);
+    if (fnm == "") continue;
+    if (iTake < 0) {
+      const FLOAT3D v = pen->GetPlacement().pl_PositionVector;
+      CPrintF("[SemCraft2] world link %d: %s at (%.0f, %.0f, %.0f)\n", i, fnm.str_String, v(1), v(2), v(3));
+    } else if (i == iTake) {
+      CPrintF("[SemCraft2] world link %d: to %s: %s\n", i, fnm.str_String, movers::TriggerEntity(pen, bridge::LocalPlayer()) ? "taken" : "failed");
+      return;
+    }
+    i++;
+  }
+  if (iTake >= 0) CPrintF("[SemCraft2] world link %d: no such link (%d)\n", iTake, i);
+};
+
 // Dev: reset Minecraft's world as entering a level would ("all" or "world").
 static void SC_Reset(SHELL_FUNC_ARGS) {
   BEGIN_SHELL_FUNC;
@@ -546,6 +575,7 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Type", "CTString", &SC_Type);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_TriggerMover", "INDEX", &SC_TriggerMover);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Reset", "CTString", &SC_Reset);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_WorldLink", "INDEX", &SC_WorldLink);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Chat", "CTString", &SC_Chat);
 
   const char *strDev = getenv("SEMCRAFT2_DEV");

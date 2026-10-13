@@ -66,6 +66,12 @@ static CEntity *PropEntity(CEntity *pen, ULONG ulID) {
   return pep != NULL ? (CEntity *)(*pep) : NULL;
 };
 
+void Abandon(void) {
+  for (size_t i = 0; i < _aTracked.size(); i++) _aTracked[i].pen.ep_pen = NULL;
+  _aTracked.clear();
+  _penLastWeapons = NULL;
+};
+
 void Reset(void) {
   _bHaveLast = FALSE;
   _iLastWeapon = -1;

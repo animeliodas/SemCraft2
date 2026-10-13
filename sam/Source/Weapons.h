@@ -17,6 +17,10 @@ void Step(CEntity *penPlayer, void (*pfnSend)(const std::string &));
 // Minecraft caught projectile ulId in one of its mobs (and exploded it there).
 void OnProjectileHit(ULONG ulId);
 // The level changed or the game stopped: forget tracked projectiles and ammo counts.
+// The world was replaced under the plugin (a level change: no OnGameStop first): the entities held here belong to the
+// old world, which is gone. Their references are dropped without releasing them (releasing would touch freed memory
+// and crash the engine); the old entities just stay allocated.
+void Abandon(void);
 void Reset(void);
 // Diagnostics.
 CTString Status(void);

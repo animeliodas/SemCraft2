@@ -74,12 +74,15 @@ CEntity *FindMover(INDEX i) {
   return penFound;
 };
 
-BOOL Trigger(INDEX i, CEntity *penCaused) {
-  CEntity *pen = FindMover(i);
+BOOL TriggerEntity(CEntity *pen, CEntity *penCaused) {
   if (pen == NULL) return FALSE;
   CTriggerEvent ee;
   ee.penCaused = penCaused;
   return SendEventSEH(pen, ee);
+};
+
+BOOL Trigger(INDEX i, CEntity *penCaused) {
+  return TriggerEntity(FindMover(i), penCaused);
 };
 
 void ResendAll(void) {

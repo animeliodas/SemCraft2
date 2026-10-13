@@ -28,6 +28,11 @@ static ULONG _ctTicks = 0;
 static ULONG _ctHitsApplied = 0;
 static ULONG _ctPushesApplied = 0;
 
+void Abandon(void) {
+  for (std::map<ULONG, CEntityPointer>::iterator it = _mapSent.begin(); it != _mapSent.end(); ++it) it->second.ep_pen = NULL;
+  _mapSent.clear();
+};
+
 void Reset(void) {
   _aHits.clear();
   _mapSent.clear();

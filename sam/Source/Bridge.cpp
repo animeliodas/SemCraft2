@@ -184,6 +184,11 @@ void OnWorldLoad(CWorld *pwo, const CTFileName &fnmWorld) {
   // only the game's world (not menu backgrounds)
   if (pwo != IWorld::GetWorld()) return;
 
+  // a level change replaces the world without OnGameStop: what's still held of the old one is dropped, not released
+  weapons::Abandon();
+  actors::Abandon();
+  blocks::Abandon();
+
   _level = levelx::Export(pwo, fnmWorld);
   _bLevelSent = FALSE;
   weapons::Reset();

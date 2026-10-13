@@ -79,6 +79,13 @@ void OnBlocks(const double *adSet, INDEX ctSet, const double *adClear, INDEX ctC
   while (_aQueue.size() > 20000) _aQueue.pop_front();
 };
 
+void Abandon(void) {
+  for (std::map<Key, CEntityPointer>::iterator it = _mapBlocks.begin(); it != _mapBlocks.end(); ++it) it->second.ep_pen = NULL;
+  for (std::map<Key, Chunk>::iterator it = _mapChunks.begin(); it != _mapChunks.end(); ++it) it->second.pen.ep_pen = NULL;
+  _mapBlocks.clear();
+  _mapChunks.clear();
+};
+
 void Reset(BOOL bPurgeWorld) {
   _mapBlocks.clear();
   _setCells.clear();

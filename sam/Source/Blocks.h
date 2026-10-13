@@ -19,6 +19,10 @@ void OnBlocks(const double *adSet, INDEX ctSet, const double *adClear, INDEX ctC
 // Every simulation tick: create and remove a budget of block entities.
 void Step(void);
 // The world was loaded (or the game stopped): forget our entities, remove any a savegame brought back.
+// The world was replaced under the plugin (a level change: no OnGameStop first): the entities held here belong to the
+// old world, which is gone. Their references are dropped without releasing them (releasing would touch freed memory
+// and crash the engine); the old entities just stay allocated.
+void Abandon(void);
 void Reset(BOOL bPurgeWorld);
 CTString Status(void);
 // Dev: how a brush's polygons face; the block brush nearest to a point.

@@ -17,6 +17,8 @@ void Step(void (*pfnSend)(const std::string &));
 CTString Status(void);
 // Send mover i an ETrigger (a door or lift starts towards its next marker), as if penCaused did it.
 BOOL Trigger(INDEX i, CEntity *penCaused);
+// Send any entity an ETrigger from penCaused.
+BOOL TriggerEntity(CEntity *pen, CEntity *penCaused);
 // Mover i's brush entity in the current world, or NULL.
 CEntity *FindMover(INDEX i);
 // Dev: every mover and where it was last sent.
