@@ -146,8 +146,8 @@ public final class WorldBridge {
 	/** The server's player follows Sam's: the client moves it every frame, but far jumps (level changes) go here. */
 	private static void followSam(final ServerPlayer player) {
 		double[] f = samFeet;
-		if (f == null) {
-			return;
+		if (f == null || player.isPassenger()) {
+			return; // (riding: the vehicle carries it, and Sam's player follows)
 		}
 
 		if (player.distanceToSqr(f[0], f[1], f[2]) > 4.0 * 4.0) {

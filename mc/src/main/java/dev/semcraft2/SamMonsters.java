@@ -112,8 +112,40 @@ public final class SamMonsters {
 
 		String kind = attacker == null ? "explosion" : attacker instanceof Player ? "player"
 			: BuiltInRegistries.ENTITY_TYPE.getKey(attacker.getType()).getPath();
-		SemCraft.events.accept(String.format(Locale.ROOT, "{\"t\":\"actorhit\",\"id\":%d,\"d\":%.2f,\"boom\":%b,\"from\":\"%s\"}",
-			id, amount * Mapping.HP_SCALE, explosion, kind));
+		net.minecraft.world.phys.Vec3 kb = knockback(proxy, source, amount, explosion);
+		SemCraft.events.accept(String.format(Locale.ROOT, "{\"t\":\"actorhit\",\"id\":%d,\"d\":%.2f,\"boom\":%b,\"from\":\"%s\",\"kb\":[%.2f,%.2f,%.2f]}",
+			id, amount * Mapping.HP_SCALE, explosion, kind, kb.x, kb.y, kb.z));
+	}
+
+	/**
+	 * The knockback Minecraft would give the hit monster (LivingEntity.knockback: 0.4 blocks a tick from a blow, less
+	 * from a projectile; an explosion's by how hard it hit), as Sam m/s, away from the hit's source and a little up. A
+	 * big monster moves less (by its height: the proxy's scale).
+	 */
+	private static net.minecraft.world.phys.Vec3 knockback(final LivingEntity proxy, final DamageSource source, final float amount, final boolean explosion) {
+		net.minecraft.world.phys.Vec3 from = source.getSourcePosition();
+		if (from == null && source.getEntity() != null) {
+			from = source.getEntity().position();
+		}
+
+		if (from == null) {
+			return net.minecraft.world.phys.Vec3.ZERO;
+		}
+
+		double dx = proxy.getX() - from.x, dz = proxy.getZ() - from.z;
+		double len = Math.sqrt(dx * dx + dz * dz);
+		if (len < 1.0E-3) {
+			dx = 0.0;
+			dz = 0.0;
+		} else {
+			dx /= len;
+			dz /= len;
+		}
+
+		double speed = explosion ? Math.min(25.0, amount * 1.5) : source.getDirectEntity() instanceof Projectile ? 5.0 : 8.0; // m/s
+		AttributeInstance scale = proxy.getAttribute(Attributes.SCALE);
+		speed /= Math.max(1.0, scale == null ? 1.0 : scale.getValue());
+		return new net.minecraft.world.phys.Vec3(dx * speed, explosion ? speed * 0.5 : speed * 0.4, dz * speed);
 	}
 
 	/** Every server tick. */

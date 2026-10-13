@@ -10,6 +10,8 @@
 #include "Movers.h"
 #include "Glide.h"
 #include "Swim.h"
+#include "Player.h"
+#include "Physics.h"
 
 #include <Engine/World/WorldRayCasting.h>
 #include <Engine/Base/Input.h>
@@ -28,33 +30,16 @@ namespace bridge {
   static const INDEX PLACT_SELECT_WEAPON_SHIFT = 14;
 #endif
 
-// Player.es (class 401) properties, the same in TFE and TSE (the powerups and serious bombs are TSE only)
-static const ULONG PROP_ARMOR = (401UL << 8) | 3;
-static const ULONG PROP_TOPHEALTH = (401UL << 8) | 6;      // m_fMaxHealth: the health a level starts with (100, 200 on easy)
-static const ULONG PROP_VIEWSTATE = (401UL << 8) | 20;     // PVT_3RDPERSONVIEW = 3
-static const ULONG PROP_POWERUPS = (401UL << 8) | 160;     // m_tmInvisibility, Invulnerability, SeriousDamage, SeriousSpeed: 160..163
-static const ULONG PROP_SERIOUSBOMBS = (401UL << 8) | 190; // m_iSeriousBombCount
-
-static void *PlayerProp(CEntity *pen, ULONG ulID) {
-  if (pen == NULL) return NULL;
-  CEntityProperty *pep = IWorld::PropertyForId(LibClassHolder(pen), ulID);
-  return pep != NULL ? (UBYTE *)pen + pep->ep_slOffset : NULL;
-};
-
-static FLOAT PlayerFloat(CEntity *pen, ULONG ulID, FLOAT fDefault) {
-  FLOAT *pf = (FLOAT *)PlayerProp(pen, ulID);
-  return pf != NULL ? *pf : fDefault;
-};
-
-static INDEX PlayerIndex(CEntity *pen, ULONG ulID, INDEX iDefault) {
-  INDEX *pi = (INDEX *)PlayerProp(pen, ulID);
-  return pi != NULL ? *pi : iDefault;
-};
-
-FLOAT PowerupLeft(CEntity *penPlayer, INDEX iPowerup) {
-  const FLOAT tmUntil = PlayerFloat(penPlayer, PROP_POWERUPS + iPowerup, 0.0f);
-  return Max(tmUntil - _pTimer->CurrentTick(), 0.0f);
-};
+// Player.es state: the SeriousBridge core (Player.h)
+using player::PROP_ARMOR;
+using player::PROP_TOPHEALTH;
+using player::PROP_VIEWSTATE;
+using player::PROP_POWERUPS;
+using player::PROP_SERIOUSBOMBS;
+static void *PlayerProp(CEntity *pen, ULONG ulID) { return player::Prop(pen, ulID); };
+static FLOAT PlayerFloat(CEntity *pen, ULONG ulID, FLOAT fDefault) { return player::PropFloat(pen, ulID, fDefault); };
+static INDEX PlayerIndex(CEntity *pen, ULONG ulID, INDEX iDefault) { return player::PropIndex(pen, ulID, iDefault); };
+FLOAT PowerupLeft(CEntity *penPlayer, INDEX iPowerup) { return player::PowerupLeft(penPlayer, iPowerup); };
 
 // Player action buttons (Player.es)
 static const ULONG PLACT_FIRE        = (1UL << 0);
@@ -74,13 +59,7 @@ struct Hurt {
 };
 
 static std::deque<Hurt> _aHurts;
-// Minecraft explosions' knockback for Sam's player, m/s (the next simulation tick gives it)
-static std::deque<FLOAT3D> _avPushes;
-// Minecraft's pistons moving Sam's player, metres (the next simulation tick moves him)
-static std::deque<FLOAT3D> _avShoves;
-// an ender pearl's landing place for Sam's player (the next simulation tick puts him there)
-static FLOAT3D _vTeleport(0, 0, 0);
-static BOOL _bTeleport = FALSE;
+// (Minecraft's knockback, pistons and ender pearls move Sam's player through the core's physics: Physics.h)
 // score for Minecraft mobs Sam killed, given on the next simulation tick
 static INDEX _ctScoreDue = 0;
 // a level was entered: Minecraft's world is to be reset ("all" or "world"), sent once Minecraft is there
@@ -93,15 +72,7 @@ static BOOL _bBuild = FALSE;
 static BOOL _bScreen = FALSE;
 static FLOAT _fCursorX = 0.5f, _fCursorY = 0.5f, _fCursorSentX = -1.0f, _fCursorSentY = -1.0f;
 // view rotation the mouse made while a screen was open, taken back out of every action from then on
-static ANGLE3D _aLastRaw(0, 0, 0);
-static BOOL _bHaveLastRaw = FALSE;
-// What the player's actions carry on top of their own rotation: the test turns, minus what the mouse turned while a
-// Minecraft screen was open. Actions carry the accumulated rotation (Player.es applies their difference), so it stays
-// added from then on. A new player entity (a level, a new game, a loaded save) has its own: it's read back from it, or
-// the first action would jump the view by the difference (see ResyncOffset).
-static ANGLE3D _aOffset(0, 0, 0);
-static BOOL _bResyncOffset = TRUE;
-static ULONG _ulOffsetPlayer = 0;
+// (the view stays still while a screen is open, and the test hook turns it: the core's player::OnAction)
 static BOOL _bKeyE = FALSE;
 static BOOL _bBoostKey = FALSE;
 static BOOL _abKeys[256];
@@ -133,13 +104,7 @@ BOOL OnChat(const char *strText) {
 };
 
 CEntity *LocalPlayer(void) {
-  CPlayerEntities cPlayers;
-  IWorld::GetLocalPlayers(cPlayers);
-  if (cPlayers.Count() == 0) return NULL;
-
-  CEntity *pen = cPlayers.Pointer(0);
-  if (pen == NULL || (pen->GetFlags() & ENF_DELETED)) return NULL;
-  return pen;
+  return player::Local();
 };
 
 // Is Sam's window in front and the game being played (no menu, console or NETRICSA over it)?
@@ -232,22 +197,22 @@ void OnWorldLoad(CWorld *pwo, const CTFileName &fnmWorld) {
   weapons::Reset();
   actors::Reset();
   blocks::Reset(TRUE);
-  _bResyncOffset = TRUE; // a new player entity
+  player::Resync(); // a new player entity
+  physics::Reset();
   SendLevel();
 };
 
 void OnGameStop(void) {
   SetBuildMode(FALSE);
-  _bResyncOffset = TRUE;
+  player::Resync();
+  physics::Reset();
   _aHurts.clear();
-  _avPushes.clear();
   weapons::Reset();
   actors::Reset();
   blocks::Reset(FALSE);
   movers::Reset(); // their entity pointers must go before the world does
   glide::Reset();
   swim::Reset();
-  _avShoves.clear();
 };
 
 // ---------------------------------------------------------------------------------------------------------
@@ -613,25 +578,26 @@ void SetPlayerForTest(const char *strWhat) {
     PlayerFloat(pen, PROP_ARMOR, -1), PlayerIndex(pen, PROP_SERIOUSBOMBS, -1));
 };
 
-// Player.es (class 401, both games): m_aLastRotation (what the last applied action carried) and m_aLocalRotation (the
-// rotation the player's actions are composed from: the mouse adds to it)
-static const ULONG PROP_LAST_ROTATION = (401UL << 8) | 151;
-static const ULONG PROP_LOCAL_ROTATION = (401UL << 8) | 154;
-
-static void ResyncOffset(CEntity *pen) {
-  CEntityProperty *pepLast = IWorld::PropertyForId(LibClassHolder(pen), PROP_LAST_ROTATION);
-  CEntityProperty *pepLocal = IWorld::PropertyForId(LibClassHolder(pen), PROP_LOCAL_ROTATION);
-  _aOffset = ANGLE3D(0, 0, 0);
-  if (pepLast != NULL && pepLocal != NULL) {
-    _aOffset = *(ANGLE3D *)((UBYTE *)pen + pepLast->ep_slOffset) - *(ANGLE3D *)((UBYTE *)pen + pepLocal->ep_slOffset);
-  }
-  _ulOffsetPlayer = pen->en_ulID;
-  _bResyncOffset = FALSE;
-  _bHaveLastRaw = FALSE;
+void OnGameLoad(void) {
+  player::Resync();
 };
 
-void OnGameLoad(void) {
-  _bResyncOffset = TRUE;
+// Riding: Sam's movement keys go to the vehicle as Minecraft's (forward/back, left/right, jump, crouch gets off).
+static void Steer(const CPlayerAction &pa, BOOL bFresh) {
+  static char strLast[128] = "";
+  static INDEX ctSame = 0;
+  if (!bFresh) return;
+  const FLOAT fFwd = Clamp(-pa.pa_vTranslation(3) / 5.0f, -1.0f, 1.0f), fSide = Clamp(pa.pa_vTranslation(1) / 5.0f, -1.0f, 1.0f);
+  char str[128];
+  _snprintf(str, sizeof(str), "{\"t\":\"steer\",\"f\":%.2f,\"s\":%.2f,\"jump\":%s,\"down\":%s}", fFwd, fSide,
+    pa.pa_vTranslation(2) > 0.01f ? "true" : "false", pa.pa_vTranslation(2) < -0.01f ? "true" : "false");
+  str[sizeof(str) - 1] = 0;
+  // on a change, and twice a second anyway
+  if (strcmp(str, strLast) != 0 || ++ctSame >= 10) {
+    ctSame = 0;
+    strcpy(strLast, str);
+    Send(str);
+  }
 };
 
 void OnPlayerAction(CPlayerAction &pa, BOOL bFresh) {
@@ -647,25 +613,30 @@ void OnPlayerAction(CPlayerAction &pa, BOOL bFresh) {
     sc_iTestButtons = 0;
   }
   // the view turns by the test hook; and while a Minecraft screen is open the mouse moves its cursor (PollScreen)
-  // instead of the view, so what it turned is taken back out (see _aOffset)
-  CEntity *penPlayer = LocalPlayer();
-  if (penPlayer != NULL && (_bResyncOffset || penPlayer->en_ulID != _ulOffsetPlayer)) ResyncOffset(penPlayer);
-  if (bFresh) {
-    if (sc_iTestTurn > 0) {
-      sc_iTestTurn--;
-      _aOffset(1) += sc_fTestTurnH;
-      _aOffset(2) += sc_fTestTurnP;
-    }
-    if (_bScreen && _bHaveLastRaw) _aOffset -= pa.pa_aRotation - _aLastRaw;
-    _aLastRaw = pa.pa_aRotation;
-    _bHaveLastRaw = TRUE;
+  // instead of the view (the core's player::OnAction keeps it still)
+  if (bFresh && sc_iTestTurn > 0) {
+    sc_iTestTurn--;
+    player::TurnView(sc_fTestTurnH, sc_fTestTurnP);
   }
-  pa.pa_aRotation += _aOffset;
+  player::FreezeView(_bScreen);
+  player::OnAction(pa, bFresh);
 
-  // Minecraft's elytra: a jump in the air opens the wings, walking is off while gliding
-  glide::OnAction(pa, bFresh);
-  // Minecraft's water: swimming takes the input over
-  swim::OnAction(pa, bFresh);
+  // test hook: run forward (before what takes the movement keys over)
+  if (sc_iTestWalk > 0 && !_bScreen) {
+    sc_iTestWalk--;
+    pa.pa_vTranslation = FLOAT3D(0.0f, 0.0f, -10.0f);
+  }
+
+  // riding a Minecraft vehicle: the movement keys steer it, the player doesn't walk
+  if (physics::Riding()) {
+    Steer(pa, bFresh);
+    pa.pa_vTranslation = FLOAT3D(0, 0, 0);
+  } else {
+    // Minecraft's elytra: a jump in the air opens the wings, walking is off while gliding
+    glide::OnAction(pa, bFresh);
+    // Minecraft's water: swimming takes the input over
+    swim::OnAction(pa, bFresh);
+  }
 
   if (_bScreen) {
     pa.pa_ulButtons = 0;
@@ -673,10 +644,6 @@ void OnPlayerAction(CPlayerAction &pa, BOOL bFresh) {
     return;
   }
 
-  if (sc_iTestWalk > 0) {
-    sc_iTestWalk--;
-    pa.pa_vTranslation = FLOAT3D(0.0f, 0.0f, -10.0f); // run forward
-  }
   if (sc_iTestSelect > 0) {
     pa.pa_ulButtons = (pa.pa_ulButtons & ~PLACT_SELECT_WEAPON_MASK) | ((ULONG)(sc_iTestSelect & 0x1F) << PLACT_SELECT_WEAPON_SHIFT);
     sc_iTestSelect = 0;
@@ -734,39 +701,6 @@ static void GiveScore(CEntity *penPlayer, INDEX ctPoints) {
   SendEventSEH(penPlayer, ee);
 };
 
-// Put where an ender pearl landed, still and facing as before.
-static BOOL SafeTeleport(CEntity *pen, const FLOAT3D &vAt) {
-  __try {
-    CPlacement3D pl = pen->GetPlacement();
-    pl.pl_PositionVector = vAt;
-    pen->Teleport(pl, FALSE);
-    return TRUE;
-  } __except (EXCEPTION_EXECUTE_HANDLER) {
-    return FALSE;
-  }
-};
-
-// Moved by vDelta metres, as a piston moves him (Minecraft already found it free there).
-static BOOL SafeMove(CEntity *pen, const FLOAT3D &vDelta) {
-  __try {
-    CPlacement3D pl = pen->GetPlacement();
-    pl.pl_PositionVector += vDelta;
-    pen->SetPlacement(pl);
-    return TRUE;
-  } __except (EXCEPTION_EXECUTE_HANDLER) {
-    return FALSE;
-  }
-};
-
-static BOOL SafePush(CEntity *penPlayer, const FLOAT3D &vSpeed) {
-  __try {
-    ((CMovableEntity *)penPlayer)->GiveImpulseTranslationAbsolute(vSpeed);
-    return TRUE;
-  } __except (EXCEPTION_EXECUTE_HANDLER) {
-    return FALSE;
-  }
-};
-
 static void Handle(const std::string &strMsg) {
   std::string strType;
   if (!json::GetString(strMsg, "t", strType)) return;
@@ -802,11 +736,17 @@ static void Handle(const std::string &strMsg) {
     json::GetNumber(strMsg, "d", dDamage);
     json::GetBool(strMsg, "boom", bBoom);
     if (dDamage > 0) actors::OnHit((ULONG)dId, (FLOAT)dDamage, bBoom);
+    // and the knockback Minecraft would give it (the monster's own physics carries it from there)
+    double adKb[3] = { 0, 0, 0 };
+    if (json::GetNumbers(strMsg, "kb", adKb, 3) == 3 && (adKb[0] != 0 || adKb[1] != 0 || adKb[2] != 0)) {
+      physics::Push((ULONG)dId, FLOAT3D((FLOAT)adKb[0], (FLOAT)adKb[1], (FLOAT)adKb[2]));
+    }
 
   } else if (strType == "push") {
     double adV[3] = { 0, 0, 0 };
-    if (json::GetNumbers(strMsg, "v", adV, 3) == 3 && _avPushes.size() < 16) {
-      _avPushes.push_back(FLOAT3D((FLOAT)adV[0], (FLOAT)adV[1], (FLOAT)adV[2]));
+    CEntity *penPlayer = LocalPlayer();
+    if (json::GetNumbers(strMsg, "v", adV, 3) == 3 && penPlayer != NULL) {
+      physics::Push(penPlayer->en_ulID, FLOAT3D((FLOAT)adV[0], (FLOAT)adV[1], (FLOAT)adV[2]));
     }
 
   } else if (strType == "screen") {
@@ -840,17 +780,46 @@ static void Handle(const std::string &strMsg) {
   } else if (strType == "teleport") {
     // a Minecraft ender pearl landed: the player is there (and the landing hurts, as in Minecraft)
     double adP[3] = { 0, 0, 0 }, dDamage = 0;
-    if (json::GetNumbers(strMsg, "p", adP, 3) == 3) {
+    CEntity *penPlayer = LocalPlayer();
+    if (json::GetNumbers(strMsg, "p", adP, 3) == 3 && penPlayer != NULL) {
       json::GetNumber(strMsg, "d", dDamage);
-      _vTeleport = FLOAT3D((FLOAT)adP[0], (FLOAT)adP[1], (FLOAT)adP[2]);
-      _bTeleport = TRUE;
+      const FLOAT3D vAt((FLOAT)adP[0], (FLOAT)adP[1], (FLOAT)adP[2]);
+      physics::TeleportTo(penPlayer->en_ulID, vAt);
+      CPrintF("[SemCraft2] ender pearl: to (%.1f, %.1f, %.1f)\n", vAt(1), vAt(2), vAt(3));
       if (dDamage > 0 && _aHurts.size() < 64) {
         Hurt h;
         h.fDamage = (FLOAT)dDamage;
-        h.vFrom = _vTeleport + FLOAT3D(0, 1, 0);
+        h.vFrom = vAt + FLOAT3D(0, 1, 0);
         h.iType = DMT_IMPACT;
         _aHurts.push_back(h);
       }
+    }
+
+  } else if (strType == "ride") {
+    // a Minecraft vehicle (boat, minecart, horse...) carries Sam's player: he follows its seat (the core's physics)
+    bool bOn = false;
+    double adP[3] = { 0, 0, 0 }, adV[3] = { 0, 0, 0 }, dYaw = 0;
+    std::string strKind;
+    json::GetBool(strMsg, "on", bOn);
+    json::GetNumbers(strMsg, "p", adP, 3);
+    json::GetNumbers(strMsg, "v", adV, 3);
+    json::GetString(strMsg, "kind", strKind);
+    physics::Ride(bOn, FLOAT3D((FLOAT)adP[0], (FLOAT)adP[1], (FLOAT)adP[2]), FLOAT3D((FLOAT)adV[0], (FLOAT)adV[1], (FLOAT)adV[2]),
+      strKind.empty() ? NULL : strKind.c_str());
+    // the vehicle turning turns him with it, as in Minecraft (its yaw: 0 along +z; Sam's heading turns the other way)
+    static BOOL bHaveYaw = FALSE;
+    static FLOAT fLastYaw = 0;
+    if (bOn && json::GetNumber(strMsg, "yaw", dYaw)) {
+      if (bHaveYaw) {
+        FLOAT fTurn = (FLOAT)dYaw - fLastYaw;
+        while (fTurn > 180.0f) fTurn -= 360.0f;
+        while (fTurn < -180.0f) fTurn += 360.0f;
+        if (Abs(fTurn) < 45.0f) player::TurnView(-fTurn, 0.0f);
+      }
+      fLastYaw = (FLOAT)dYaw;
+      bHaveYaw = TRUE;
+    } else {
+      bHaveYaw = FALSE;
     }
 
   } else if (strType == "kill") {
@@ -865,8 +834,9 @@ static void Handle(const std::string &strMsg) {
 
   } else if (strType == "shove") {
     double adD[3] = { 0, 0, 0 };
-    if (json::GetNumbers(strMsg, "d", adD, 3) == 3 && _avShoves.size() < 32) {
-      _avShoves.push_back(FLOAT3D((FLOAT)adD[0], (FLOAT)adD[1], (FLOAT)adD[2]));
+    CEntity *penPlayer = LocalPlayer();
+    if (json::GetNumbers(strMsg, "d", adD, 3) == 3 && penPlayer != NULL) {
+      physics::Shove(penPlayer->en_ulID, FLOAT3D((FLOAT)adD[0], (FLOAT)adD[1], (FLOAT)adD[2]));
     }
 
   } else if (strType == "actorpush") {
@@ -957,49 +927,17 @@ void OnStep(void) {
       }
     }
 
-    // and its explosions throw him
-    while (!_avPushes.empty() && !_bHurtBroken) {
-      const FLOAT3D v = _avPushes.front();
-      _avPushes.pop_front();
-      if (!SafePush(penPlayer, v)) {
-        _bHurtBroken = TRUE;
-        CPrintF("^cff0000[SemCraft2]^r pushing the player crashed inside the game; Minecraft damage is off for this session\n");
-      }
-    }
-
-    // and its ender pearls take him where they land
-    if (_bTeleport && !_bHurtBroken) {
-      _bTeleport = FALSE;
-      if (!SafeTeleport(penPlayer, _vTeleport)) {
-        _bHurtBroken = TRUE;
-        CPrintF("^cff0000[SemCraft2]^r moving the player crashed inside the game; Minecraft damage is off for this session\n");
-      } else {
-        CPrintF("[SemCraft2] ender pearl: to (%.1f, %.1f, %.1f)\n", _vTeleport(1), _vTeleport(2), _vTeleport(3));
-      }
-    }
-
     // and killing its mobs scores
     if (_ctScoreDue > 0) {
       GiveScore(penPlayer, _ctScoreDue);
       _ctScoreDue = 0;
     }
-
-    // and its pistons move him
-    FLOAT3D vShove(0, 0, 0);
-    while (!_avShoves.empty()) {
-      vShove += _avShoves.front();
-      _avShoves.pop_front();
-    }
-    if (vShove.Length() > 0.0001f && !_bHurtBroken && !SafeMove(penPlayer, vShove)) {
-      _bHurtBroken = TRUE;
-      CPrintF("^cff0000[SemCraft2]^r moving the player crashed inside the game; Minecraft damage is off for this session\n");
-    }
   } else {
     _aHurts.clear();
-    _avPushes.clear();
-    _avShoves.clear();
-    _bTeleport = FALSE;
   }
+
+  // its explosions' knockback, its pistons, its ender pearls (queued as they came), and riding its boats
+  physics::Step(penPlayer);
 
   // Sam's guns hurt Minecraft's mobs
   if (GetGameAPI()->IsGameOn() && link::Connected()) {

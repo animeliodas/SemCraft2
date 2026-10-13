@@ -13,6 +13,7 @@
 #include "Blocks.h"
 #include "Compositor.h"
 #include "GlDraw.h"
+#include "DevHook.h"
 
 #include <Engine/World/WorldRayCasting.h>
 
@@ -28,10 +29,7 @@ static BOOL _bViewDone = FALSE;
 // A screenshot of the next finished frame goes here (sc_Shot).
 static CTString _strShotPending = "";
 
-// Dev hook (environment SEMCRAFT2_DEV=1): console commands from %TEMP%\SemCraft2\cmd.txt, so tests can drive Sam
-// without touching the user's mouse and keyboard.
-static BOOL _bDevHook = FALSE;
-static DWORD _tmNextDevPoll = 0;
+// (the dev hook - console commands from %TEMP%\SemCraft2\cmd.txt for tests - is the SeriousBridge core's: DevHook.h)
 
 static void WriteBmp(const char *strFile, INDEX w, INDEX h, const UBYTE *pubRGBA) {
   FILE *f = fopen(strFile, "wb");
@@ -75,38 +73,6 @@ static void TakeShot(CDrawPort *pdp) {
   gldraw::ReadPixels(0, 0, w, h, &aub[0]);
   WriteBmp(_strShotPending.str_String, w, h, &aub[0]);
   _strShotPending = "";
-};
-
-static void PollDevCommands(void) {
-  if (!_bDevHook) return;
-
-  const DWORD tmNow = GetTickCount();
-  if ((LONG)(tmNow - _tmNextDevPoll) < 0) return;
-  _tmNextDevPoll = tmNow + 250;
-
-  char strTemp[MAX_PATH];
-  GetTempPathA(MAX_PATH, strTemp);
-  CTString strFile = CTString(strTemp) + "SemCraft2\\cmd.txt";
-  CTString strTaken = CTString(strTemp) + "SemCraft2\\cmd.taken";
-
-  // take the file away first, so a writer can't append to what we're reading
-  DeleteFileA(strTaken.str_String);
-  if (!MoveFileA(strFile.str_String, strTaken.str_String)) return;
-
-  FILE *f = fopen(strTaken.str_String, "rb");
-  if (f == NULL) return;
-
-  char strLine[1024];
-  while (fgets(strLine, sizeof(strLine), f) != NULL) {
-    size_t ct = strlen(strLine);
-    while (ct > 0 && (strLine[ct - 1] == 10 || strLine[ct - 1] == 13)) strLine[--ct] = 0;
-    if (ct == 0) continue;
-
-    CPrintF("[SemCraft2] dev> %s\n", strLine);
-    _pShell->Execute(strLine);
-  }
-  fclose(f);
-  DeleteFileA(strTaken.str_String);
 };
 
 // ------------------------------------------------------------------
@@ -388,7 +354,7 @@ static void SC_OnStep(void) {
 
 static void SC_OnFrame(CDrawPort *pdp) {
   bridge::OnFrame();
-  PollDevCommands();
+  devhook::Poll();
 };
 
 static void SC_OnPreDraw(CDrawPort *pdp) {
@@ -588,9 +554,7 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_SetPlayer", "CTString", &SC_SetPlayer);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Chat", "CTString", &SC_Chat);
 
-  const char *strDev = getenv("SEMCRAFT2_DEV");
-  _bDevHook = strDev != NULL && strDev[0] == '1';
-  if (_bDevHook) CPrintF("[SemCraft2] dev hook on: commands from %%TEMP%%/SemCraft2/cmd.txt\n");
+  devhook::Init("SEMCRAFT2_DEV");
   _pShell->DeclareSymbol("user INDEX sc_iCompositeMode;", &compositor::sc_iCompositeMode);
   _pShell->DeclareSymbol("user FLOAT sc_fDepthBias;", &compositor::sc_fDepthBias);
   _pShell->DeclareSymbol("persistent user FLOAT sc_fLightMatch;", &compositor::sc_fLightMatch);

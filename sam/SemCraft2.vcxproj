@@ -12,18 +12,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\StdH.h" />
-    <ClInclude Include="Source\Link.h" />
     <ClInclude Include="Source\Bridge.h" />
-    <ClInclude Include="Source\Compositor.h" />
-    <ClInclude Include="Source\LevelExport.h" />
-    <ClInclude Include="Source\Json.h" />
-    <ClInclude Include="Source\GlDraw.h" />
-    <ClInclude Include="Source\Weapons.h" />
-    <ClInclude Include="Source\Actors.h" />
-    <ClInclude Include="Source\Blocks.h" />
     <ClInclude Include="Source\Glide.h" />
     <ClInclude Include="Source\Swim.h" />
-    <ClInclude Include="Source\Movers.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\StdH.cpp">
@@ -31,22 +22,15 @@
     </ClCompile>
     <ClCompile Include="Source\Main.cpp" />
     <ClCompile Include="Source\Bridge.cpp" />
-    <ClCompile Include="Source\Compositor.cpp" />
-    <ClCompile Include="Source\LevelExport.cpp" />
-    <ClCompile Include="Source\Weapons.cpp" />
-    <ClCompile Include="Source\Actors.cpp" />
-    <ClCompile Include="Source\Alloc.cpp" />
-    <ClCompile Include="Source\Blocks.cpp" />
     <ClCompile Include="Source\Glide.cpp" />
     <ClCompile Include="Source\Swim.cpp" />
-    <ClCompile Include="Source\Movers.cpp" />
-    <ClCompile Include="Source\GlDraw.cpp">
-      <PrecompiledHeader>NotUsing</PrecompiledHeader>
-    </ClCompile>
-    <ClCompile Include="Source\Link.cpp">
-      <PrecompiledHeader>NotUsing</PrecompiledHeader>
-    </ClCompile>
   </ItemGroup>
+  <PropertyGroup>
+    <!-- the SeriousBridge core (github.com/animeliodas/SeriousBridge): build.sh passes it; by default next to this repo -->
+    <SeriousBridgeDir Condition="'$(SeriousBridgeDir)' == ''">$(MSBuildThisFileDirectory)..\..\seriousbridge\</SeriousBridgeDir>
+    <!-- Minecraft runs next to Sam: the link, level export, frames and the rest -->
+    <SBridgeGuestBeside>true</SBridgeGuestBeside>
+  </PropertyGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{5E3C2A9B-7D41-4C8E-9F2A-0B1C2D3E4F52}</ProjectGuid>
     <ProjectName>SemCraft2</ProjectName>
@@ -137,5 +121,6 @@
       <AdditionalDependencies>opengl32.lib;ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
+  <Import Project="$(SeriousBridgeDir)core\sam\SeriousBridge.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

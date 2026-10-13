@@ -2,6 +2,7 @@
 #include "StdH.h"
 #include "Glide.h"
 #include "Swim.h"
+#include "Physics.h"
 
 #include <Engine/World/WorldSettings.h>
 
@@ -23,10 +24,8 @@ static FLOAT3D _vStart(0, 0, 0);
 INDEX sc_iTestJump = 0;
 INDEX sc_iGlideLog = 0;
 // what the glide wanted Sam to move at (Minecraft's velocity) and what it gave Sam's physics for that, last tick
-static FLOAT3D _vSet(0, 0, 0), _vSent(0, 0, 0);
-static BOOL _bHaveSet = FALSE;
-// Sam's own pull on the player per tick (blocks/tick; its gravity keeps working on a player), measured while gliding
-static DOUBLE _dSamPull = 0;
+// the glide sets the player's velocity every tick against Sam's gravity (the SeriousBridge core's velocity driver)
+static physics::Driver _drGlide;
 
 // Swimming as Player.es sees it: a swimmable content (water) around the player, enough of him in it.
 BOOL InWater(CEntity *pen) {
@@ -99,8 +98,8 @@ void Step(CEntity *penPlayer) {
   }
   CMovableEntity *pmen = (CMovableEntity *)penPlayer;
   const BOOL bOnGround = pmen->en_penReference != NULL;
-  // in water Sam swims (jump = up), Sam's or Minecraft's: no wings there
-  const BOOL bInWater = InWater(penPlayer) || swim::InFluid();
+  // in water Sam swims (jump = up), Sam's or Minecraft's: no wings there; nor on a vehicle
+  const BOOL bInWater = InWater(penPlayer) || swim::InFluid() || physics::Riding();
 
   if (!_bGliding) {
     // a jump pressed while falling, with an elytra on: the wings open
@@ -109,7 +108,7 @@ void Step(CEntity *penPlayer) {
       // (Sam's gravity flag stays: Player.es puts it back every tick and levels the view when it does; the glide takes
       // out Sam's gravity itself, see below)
       _vStart = pmen->GetPlacement().pl_PositionVector;
-      _bHaveSet = FALSE;
+      _drGlide.Release();
       _ctGlides++;
       CPrintF("[SemCraft2] elytra open\n");
     }
@@ -129,21 +128,15 @@ void Step(CEntity *penPlayer) {
   MakeRotationMatrix(m, plView.pl_OrientationAngle);
   const DOUBLE lx = -m(1, 3), ly = -m(2, 3), lz = -m(3, 3);
 
-  // the velocity Sam's physics left after last tick (collisions included), in metres (blocks) per tick
-  const FLOAT3D vNow = pmen->en_vCurrentTranslationAbsolute;
-  DOUBLE vx = vNow(1) / 20.0, vy = vNow(2) / 20.0, vz = vNow(3) / 20.0;
-  // nothing hit (the horizontal velocity is what was given): Sam's physics only added its own gravity, which is measured
-  // and taken out, and the glide goes on from its own velocity; after a hit it goes on from what Sam's physics left
-  if (_bHaveSet && fabs(vx - _vSent(1)) < 0.002 && fabs(vz - _vSent(3)) < 0.002) {
-    _dSamPull = vy - _vSent(2);
-    vx = _vSet(1);
-    vy = _vSet(2);
-    vz = _vSet(3);
-  }
+  // the velocity to go on from, in metres (blocks) per tick: the glide's own if Sam's physics only added its gravity
+  // (measured and taken out next), else what Sam's physics left after a hit
+  BOOL bBlocked;
+  const FLOAT3D vFrom = _drGlide.From(pmen, TRUE, bBlocked) / 20.0f;
+  DOUBLE vx = vFrom(1), vy = vFrom(2), vz = vFrom(3);
   if (sc_iGlideLog > 0 && (_ctTicks % 5) == 0) {
     sc_iGlideLog--;
-    CPrintF("[SemCraft2] glide: set (%.3f %.3f %.3f) last tick, now (%.3f %.3f %.3f) b/t, y %.2f\n", _vSet(1), _vSet(2), _vSet(3),
-      vx, vy, vz, pmen->GetPlacement().pl_PositionVector(2));
+    CPrintF("[SemCraft2] glide: from (%.3f %.3f %.3f) b/t%s, Sam's pull %.3f, y %.2f\n", vx, vy, vz, bBlocked ? " (hit)" : "",
+      _drGlide.Pull() / 20.0f, pmen->GetPlacement().pl_PositionVector(2));
   }
 
   // LivingEntity.updateFallFlyingMovement, Minecraft 26.3 (pitch: Minecraft's xRot, positive = down)
@@ -181,15 +174,8 @@ void Step(CEntity *penPlayer) {
     vz += lz * 0.1 + (lz * 1.5 - vz) * 0.5;
   }
 
-  // Sam's physics will pull the player down by its gravity this tick: give it that much more to start with
-  _vSet = FLOAT3D((FLOAT)vx, (FLOAT)vy, (FLOAT)vz);
-  _vSent = FLOAT3D((FLOAT)vx, (FLOAT)(vy - _dSamPull), (FLOAT)vz);
-  _bHaveSet = TRUE;
-  pmen->en_vCurrentTranslationAbsolute = _vSent * 20.0f;
-  // Sam's physics steers a player for a moment after a jump (towards the input, which is nothing while gliding): the
-  // jump that opened the wings must not brake the glide
-  pmen->en_tmJumped = -1000.0f;
-  pmen->AddToMovers();
+  // (Sam's physics will pull the player down by its gravity this tick: the driver gives that much more to start with)
+  _drGlide.Set(pmen, FLOAT3D((FLOAT)vx, (FLOAT)vy, (FLOAT)vz) * 20.0f, TRUE);
 };
 
 CTString Status(void) {

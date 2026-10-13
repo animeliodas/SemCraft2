@@ -2,6 +2,7 @@
 #include "StdH.h"
 #include "Swim.h"
 #include "Glide.h"
+#include "Physics.h"
 
 namespace swim {
 
@@ -28,9 +29,7 @@ static BOOL _bSwimming = FALSE, _bOnBottom = FALSE;
 // the player's input (relative: x right, y up, z back; Sam's speeds), taken while swimming
 static FLOAT3D _vInput(0, 0, 0);
 // velocity control as in Glide.cpp: what the swim wanted, what Sam's physics got for it, Sam's own pull per tick
-static FLOAT3D _vSet(0, 0, 0), _vSent(0, 0, 0);
-static BOOL _bHaveSet = FALSE;
-static DOUBLE _dSamPull = -0.075;
+static physics::Driver _drSwim;
 static ULONG _ctSwimTicks = 0, _ctMessages = 0;
 
 void OnFluid(FLOAT fWater, FLOAT fLava, BOOL bEyes, const FLOAT3D &vFlow) {
@@ -49,7 +48,7 @@ BOOL InFluid(void) {
 void Reset(void) {
   _fWater = _fLava = 0;
   _bSwimming = _bOnBottom = FALSE;
-  _bHaveSet = FALSE;
+  _drSwim.Release();
 };
 
 void OnAction(CPlayerAction &pa, BOOL bFresh) {
@@ -80,11 +79,11 @@ void Step(CEntity *penPlayer) {
   CMovableEntity *pmen = (CMovableEntity *)penPlayer;
   const BOOL bOnGround = pmen->en_penReference != NULL;
 
-  // Sam's own water is Sam's; gliding into water folds the wings first (Glide.cpp)
-  if (!InFluid() || glide::Gliding() || glide::InWater(penPlayer)) {
+  // Sam's own water is Sam's; gliding into water folds the wings first (Glide.cpp); a boat floats on it
+  if (!InFluid() || glide::Gliding() || glide::InWater(penPlayer) || physics::Riding()) {
     if (_bSwimming) CPrintF("[SemCraft2] out of Minecraft's %s\n", _fLava > 0.0f ? "lava" : "water");
     _bSwimming = _bOnBottom = FALSE;
-    _bHaveSet = FALSE;
+    _drSwim.Release();
     return;
   }
 
@@ -92,7 +91,7 @@ void Step(CEntity *penPlayer) {
   const BOOL bJump = _vInput(2) > 0.01f, bDive = _vInput(2) < -0.01f;
   _bOnBottom = bOnGround;
   if (bOnGround && !(bJump && _fWater + _fLava >= JUMP_THRESHOLD)) {
-    _bHaveSet = FALSE; // Sam's walk (OnAction slowed it)
+    _drSwim.Release(); // Sam's walk (OnAction slowed it)
     return;
   }
 
@@ -105,19 +104,10 @@ void Step(CEntity *penPlayer) {
 
   // the velocity Sam's physics left (blocks per tick); nothing hit: Sam only added its pull, which is measured and taken
   // out (as in Glide.cpp)
-  const FLOAT3D vNow = pmen->en_vCurrentTranslationAbsolute;
-  DOUBLE vx = vNow(1) / 20.0, vy = vNow(2) / 20.0, vz = vNow(3) / 20.0;
-  BOOL bBlocked = FALSE;
-  if (_bHaveSet) {
-    if (fabs(vx - _vSent(1)) < 0.002 && fabs(vz - _vSent(3)) < 0.002) {
-      if (!bOnGround) _dSamPull = vy - _vSent(2);
-      vx = _vSet(1);
-      vy = _vSet(2);
-      vz = _vSet(3);
-    } else {
-      bBlocked = TRUE; // a wall (or the bottom's edge): maybe a ledge to climb out on
-    }
-  }
+  // (blocked: a wall, or the bottom's edge: maybe a ledge to climb out on)
+  BOOL bBlocked;
+  const FLOAT3D vFrom = _drSwim.From(pmen, !bOnGround, bBlocked) / 20.0f;
+  DOUBLE vx = vFrom(1), vy = vFrom(2), vz = vFrom(3);
 
   // strokes: along the heading (Minecraft's moveRelative), input as fractions of Sam's speeds
   const FLOAT fHeading = penPlayer->GetPlacement().pl_OrientationAngle(1) * PI / 180.0f;
@@ -148,12 +138,7 @@ void Step(CEntity *penPlayer) {
   // against a wall with jump held: out onto the ledge (Minecraft's jump out of water)
   if (bJump && bBlocked && _fWater + _fLava < 1.2f) vy = JUMP_OUT;
 
-  _vSet = FLOAT3D((FLOAT)vx, (FLOAT)vy, (FLOAT)vz);
-  _vSent = FLOAT3D((FLOAT)vx, (FLOAT)(vy - (bOnGround ? 0.0 : _dSamPull)), (FLOAT)vz);
-  _bHaveSet = TRUE;
-  pmen->en_vCurrentTranslationAbsolute = _vSent * 20.0f;
-  pmen->en_tmJumped = -1000.0f; // no jump steering against the strokes
-  pmen->AddToMovers();
+  _drSwim.Set(pmen, FLOAT3D((FLOAT)vx, (FLOAT)vy, (FLOAT)vz) * 20.0f, !bOnGround);
 };
 
 CTString Status(void) {

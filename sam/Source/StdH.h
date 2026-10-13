@@ -20,4 +20,8 @@
   // (no Terrain.h: its templates do not compile with a modern compiler)
 #endif
 
+// this port to the SeriousBridge core (core/sam/SBridge.h): its log tag and temp folder, and Minecraft's frame memory
+#define SB_NAME "SemCraft2"
+#define SB_FRAME_MEMORY L"Local\\SemCraft2Frame"
+
 #endif

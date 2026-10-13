@@ -48,11 +48,14 @@ public final class PlayerSync {
 		player.xRotO = pitch;
 		player.yHeadRot = player.yHeadRotO = yaw;
 		player.yBodyRot = player.yBodyRotO = yaw;
-		double[] f = feet(p, player);
-		player.setPos(f[0], f[1], f[2]);
-		player.xo = player.xOld = f[0];
-		player.yo = player.yOld = f[1];
-		player.zo = player.zOld = f[2];
+		// (riding a vehicle: the vehicle places the stand-in, and Sam's player follows it)
+		if (!Vehicles.riding(player)) {
+			double[] f = feet(p, player);
+			player.setPos(f[0], f[1], f[2]);
+			player.xo = player.xOld = f[0];
+			player.yo = player.yOld = f[1];
+			player.zo = player.zOld = f[2];
+		}
 		if (minecraft.options.getCameraType() != CameraType.FIRST_PERSON) {
 			minecraft.options.setCameraType(CameraType.FIRST_PERSON);
 		}
@@ -63,6 +66,11 @@ public final class PlayerSync {
 		HostState.Pose p = HostState.live();
 		if (p == null) {
 			return;
+		}
+
+		if (Vehicles.riding(player)) {
+			tickDistance = 0.0F;
+			return; // the vehicle places it
 		}
 
 		double[] f = feet(p, player);

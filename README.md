@@ -39,6 +39,9 @@ Encounter 1.07) и рисуется прямо в кадре Sam, с глуби�
   неуязвимость, Serious Damage — сила, а оружие Сэма бьёт мобов вчетверо, Serious Speed — скорость), **серьёзная
   бомба** убивает и монстров Minecraft вокруг, а убитые Сэмом мобы Minecraft **приносят ему очки**;
 - **жемчуг Края**: брошенный в режиме стройки, переносит Сэма туда, где упал (и ранит, как Стива);
+- **транспорт Minecraft**: лодка (ПКМ по ней в режиме стройки) везёт Сэма по воде Minecraft, клавиши движения Сэма
+  рулят ею, присед — встать; поворот лодки поворачивает взгляд (вагонетки и лошади идут тем же путём, не проверены);
+- **физика монстров**: удар мечом, стрела или взрыв Minecraft отбрасывают монстров Sam, как мобов Minecraft;
 - **Стив от третьего лица**: в виде от третьего лица (H) вместо модели Сэма виден Стив — смотрит, куда Сэм, шагает,
   с элитрами на спине, предмет в руке (`sc_iSteve = 0` — снова Сэм);
 - Minecraft подкрашивается под освещение уровня Sam.
@@ -172,8 +175,14 @@ SeriousSam_Custom.exe (TFE/TSE) + Classics Patch          javaw (Minecraft 26.3 
 
 ## Сборка из исходников
 
-- Плагин: VS 2022 Build Tools (v143, x86), SDK Classics Patch 1.9.4:
-  `git clone --branch 1.9.4 --recurse-submodules https://github.com/SamClassicPatch/SuperProject.git ../_deps/SuperProject`,
+- Плагин: VS 2022 Build Tools (v143, x86). Общая часть плагина — ядро
+  [SeriousBridge](https://github.com/animeliodas/SeriousBridge) (связь, экспорт уровня, вклейка кадра, физика, игрок):
+  оно должно лежать рядом (или `$SERIOUSBRIDGE`), как и SDK Classics Patch 1.9.4 (или `$SUPERPROJECT`):
+  ```
+  <папка>/semcraft            этот репозиторий
+  <папка>/seriousbridge       git clone https://github.com/animeliodas/SeriousBridge seriousbridge
+  <папка>/_deps/SuperProject  git clone --branch 1.9.4 --recurse-submodules https://github.com/SamClassicPatch/SuperProject.git
+  ```
   затем `sam/build.sh` (Git Bash).
 - Мод: JDK 25, `cd mc && ./gradlew build` (тесты вокселизатора запускаются там же).
 - Тест-стенд без мыши и клавиатуры: `tools/dev.py` (запуск игр, консольные команды Sam, скриншоты из плагина;

@@ -46,6 +46,7 @@ final class ClientInput {
 					key.setDown(down);
 				}
 			}
+			case "steer" -> Vehicles.steer(minecraft, m);
 			case "slot" -> {
 				if (player != null) {
 					player.getInventory().setSelectedSlot(Math.clamp(m.get("n").getAsInt(), 0, Inventory.getSelectionSize() - 1));
