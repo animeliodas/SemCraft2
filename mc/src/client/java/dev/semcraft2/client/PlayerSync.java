@@ -40,12 +40,14 @@ public final class PlayerSync {
 			return;
 		}
 
-		player.setYRot(p.yaw());
-		player.setXRot(p.pitch());
-		player.yRotO = p.yaw();
-		player.xRotO = p.pitch();
-		player.yHeadRot = player.yHeadRotO = p.yaw();
-		player.yBodyRot = player.yBodyRotO = p.yaw();
+		// first person: the camera's look; third person: where Sam's player looks (Steve turns his head and body there)
+		float yaw = p.thirdPerson() ? p.bodyYaw() : p.yaw(), pitch = p.thirdPerson() ? p.bodyPitch() : p.pitch();
+		player.setYRot(yaw);
+		player.setXRot(pitch);
+		player.yRotO = yaw;
+		player.xRotO = pitch;
+		player.yHeadRot = player.yHeadRotO = yaw;
+		player.yBodyRot = player.yBodyRotO = yaw;
 		double[] f = feet(p, player);
 		player.setPos(f[0], f[1], f[2]);
 		player.xo = player.xOld = f[0];

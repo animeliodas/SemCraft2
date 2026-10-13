@@ -28,6 +28,34 @@ namespace bridge {
   static const INDEX PLACT_SELECT_WEAPON_SHIFT = 14;
 #endif
 
+// Player.es (class 401) properties, the same in TFE and TSE (the powerups and serious bombs are TSE only)
+static const ULONG PROP_ARMOR = (401UL << 8) | 3;
+static const ULONG PROP_TOPHEALTH = (401UL << 8) | 6;      // m_fMaxHealth: the health a level starts with (100, 200 on easy)
+static const ULONG PROP_VIEWSTATE = (401UL << 8) | 20;     // PVT_3RDPERSONVIEW = 3
+static const ULONG PROP_POWERUPS = (401UL << 8) | 160;     // m_tmInvisibility, Invulnerability, SeriousDamage, SeriousSpeed: 160..163
+static const ULONG PROP_SERIOUSBOMBS = (401UL << 8) | 190; // m_iSeriousBombCount
+
+static void *PlayerProp(CEntity *pen, ULONG ulID) {
+  if (pen == NULL) return NULL;
+  CEntityProperty *pep = IWorld::PropertyForId(LibClassHolder(pen), ulID);
+  return pep != NULL ? (UBYTE *)pen + pep->ep_slOffset : NULL;
+};
+
+static FLOAT PlayerFloat(CEntity *pen, ULONG ulID, FLOAT fDefault) {
+  FLOAT *pf = (FLOAT *)PlayerProp(pen, ulID);
+  return pf != NULL ? *pf : fDefault;
+};
+
+static INDEX PlayerIndex(CEntity *pen, ULONG ulID, INDEX iDefault) {
+  INDEX *pi = (INDEX *)PlayerProp(pen, ulID);
+  return pi != NULL ? *pi : iDefault;
+};
+
+FLOAT PowerupLeft(CEntity *penPlayer, INDEX iPowerup) {
+  const FLOAT tmUntil = PlayerFloat(penPlayer, PROP_POWERUPS + iPowerup, 0.0f);
+  return Max(tmUntil - _pTimer->CurrentTick(), 0.0f);
+};
+
 // Player action buttons (Player.es)
 static const ULONG PLACT_FIRE        = (1UL << 0);
 static const ULONG PLACT_WEAPON_NEXT = (1UL << 2);
@@ -50,6 +78,11 @@ static std::deque<Hurt> _aHurts;
 static std::deque<FLOAT3D> _avPushes;
 // Minecraft's pistons moving Sam's player, metres (the next simulation tick moves him)
 static std::deque<FLOAT3D> _avShoves;
+// an ender pearl's landing place for Sam's player (the next simulation tick puts him there)
+static FLOAT3D _vTeleport(0, 0, 0);
+static BOOL _bTeleport = FALSE;
+// score for Minecraft mobs Sam killed, given on the next simulation tick
+static INDEX _ctScoreDue = 0;
 // a level was entered: Minecraft's world is to be reset ("all" or "world"), sent once Minecraft is there
 static std::string _strPendingReset;
 static levelx::Exported _level;
@@ -155,14 +188,19 @@ void OnView(CPerspectiveProjection3D &ppr, CEntity *penViewer) {
   FLOAT3D vFeet = plView.pl_PositionVector;
   CEntity *penPlayer = LocalPlayer();
   if (penPlayer != NULL) vFeet = penPlayer->GetLerpedPlacement().pl_PositionVector;
+  // third person: Minecraft draws Steve at the feet, looking where the player looks
+  const BOOL bThirdPerson = penPlayer != NULL && PlayerIndex(penPlayer, PROP_VIEWSTATE, 0) == 3;
+  ANGLE3D aLook = plView.pl_OrientationAngle;
+  if (penPlayer != NULL) aLook = IWorld::GetViewpoint((CPlayerEntity *)penPlayer, TRUE).pl_OrientationAngle;
 
-  char str[512];
+  char str[600];
   _snprintf(str, sizeof(str),
     "{\"t\":\"cam\",\"f\":%u,\"p\":[%.4f,%.4f,%.4f],\"r\":[%.4f,%.4f,%.4f],\"vfov\":%.4f,\"aspect\":%.5f,\"w\":%d,\"h\":%d,"
-    "\"near\":%.4f,\"pl\":[%.4f,%.4f,%.4f]}",
+    "\"near\":%.4f,\"pl\":[%.4f,%.4f,%.4f],\"tp\":%s,\"pr\":[%.3f,%.3f]}",
     ++_ulCamFrame, plView.pl_PositionVector(1), plView.pl_PositionVector(2), plView.pl_PositionVector(3),
     (FLOAT)plView.pl_OrientationAngle(1), (FLOAT)plView.pl_OrientationAngle(2), (FLOAT)plView.pl_OrientationAngle(3),
-    fVFov, fAspect, (INDEX)vScreen(1), (INDEX)vScreen(2), ppr.pr_NearClipDistance, vFeet(1), vFeet(2), vFeet(3));
+    fVFov, fAspect, (INDEX)vScreen(1), (INDEX)vScreen(2), ppr.pr_NearClipDistance, vFeet(1), vFeet(2), vFeet(3),
+    bThirdPerson && sc_iSteve ? "true" : "false", (FLOAT)aLook(1), (FLOAT)aLook(2));
   str[sizeof(str) - 1] = 0;
   Send(str);
 };
@@ -217,6 +255,30 @@ void OnGameStop(void) {
 // ---------------------------------------------------------------------------------------------------------
 BOOL BuildMode(void) {
   return _bBuild;
+};
+
+// 1: in third person Minecraft draws Steve where Sam's player is, and Sam's own model is hidden (0: Sam's model)
+INDEX sc_iSteve = 1;
+static CEntity *_apenHidden[2] = { NULL, NULL };
+
+void HideSamForSteve(BOOL bHide) {
+  if (!bHide) {
+    for (INDEX i = 0; i < 2; i++) {
+      if (_apenHidden[i] != NULL) _apenHidden[i]->en_RenderType = CEntity::RT_MODEL;
+      _apenHidden[i] = NULL;
+    }
+    return;
+  }
+  CEntity *pen = LocalPlayer();
+  if (!sc_iSteve || pen == NULL || !link::Connected() || !GetGameAPI()->IsGameOn() || PlayerIndex(pen, PROP_VIEWSTATE, 0) != 3) return;
+  if (!(pen->GetFlags() & ENF_ALIVE)) return; // a dead Sam lies there as himself
+  CEntity *apen[2] = { pen, pen->IsPredicted() ? pen->GetPredictionTail() : NULL };
+  for (INDEX i = 0; i < 2; i++) {
+    if (apen[i] != NULL && apen[i]->en_RenderType == CEntity::RT_MODEL) {
+      apen[i]->en_RenderType = CEntity::RT_NONE;
+      _apenHidden[i] = apen[i];
+    }
+  }
 };
 
 void SetBuildMode(BOOL bOn) {
@@ -522,6 +584,34 @@ INDEX sc_iTestSelect = 0;
 INDEX sc_iTestWalk = 0;
 INDEX sc_iTestTurn = 0;
 FLOAT sc_fTestTurnH = 0.0f, sc_fTestTurnP = 0.0f;
+INDEX sc_iTestButtons = 0;
+
+void SetPlayerForTest(const char *strWhat) {
+  CEntity *pen = LocalPlayer();
+  if (pen == NULL) return;
+  char strKey[32];
+  FLOAT f = 0, f2 = 0;
+  INDEX ctRead = 0;
+  for (const char *pch = strWhat; sscanf(pch, "%31s %f%n", strKey, &f, &ctRead) == 2; pch += ctRead) {
+    if (strcmp(strKey, "hp") == 0) {
+      ((CLiveEntity *)pen)->en_fHealth = f;
+    } else if (strcmp(strKey, "armor") == 0) {
+      FLOAT *pf = (FLOAT *)PlayerProp(pen, PROP_ARMOR);
+      if (pf != NULL) *pf = f;
+    } else if (strcmp(strKey, "bombs") == 0) {
+      INDEX *pi = (INDEX *)PlayerProp(pen, PROP_SERIOUSBOMBS);
+      if (pi != NULL) *pi = (INDEX)f;
+    } else if (strcmp(strKey, "power") == 0) {
+      INDEX ctMore = 0;
+      if (sscanf(pch + ctRead, "%f%n", &f2, &ctMore) != 1) break;
+      ctRead += ctMore;
+      FLOAT *pf = (FLOAT *)PlayerProp(pen, PROP_POWERUPS + (INDEX)f);
+      if (pf != NULL) *pf = _pTimer->CurrentTick() + f2;
+    }
+  }
+  CPrintF("[SemCraft2] player: health %.0f, armor %.0f, bombs %d\n", ((CLiveEntity *)pen)->en_fHealth,
+    PlayerFloat(pen, PROP_ARMOR, -1), PlayerIndex(pen, PROP_SERIOUSBOMBS, -1));
+};
 
 // Player.es (class 401, both games): m_aLastRotation (what the last applied action carried) and m_aLocalRotation (the
 // rotation the player's actions are composed from: the mouse adds to it)
@@ -551,6 +641,10 @@ void OnPlayerAction(CPlayerAction &pa, BOOL bFresh) {
   if (sc_iTestFire > 0) {
     sc_iTestFire--;
     pa.pa_ulButtons |= PLACT_FIRE;
+  }
+  if (bFresh && sc_iTestButtons != 0) {
+    pa.pa_ulButtons |= (ULONG)sc_iTestButtons;
+    sc_iTestButtons = 0;
   }
   // the view turns by the test hook; and while a Minecraft screen is open the mouse moves its cursor (PollScreen)
   // instead of the view, so what it turned is taken back out (see _aOffset)
@@ -610,6 +704,42 @@ static INDEX DamageTypeFor(const std::string &strSource) {
 static BOOL SafeInflict(CEntity *penPlayer, INDEX iType, FLOAT fDamage, const FLOAT3D &vHit, const FLOAT3D &vDir) {
   __try {
     penPlayer->InflictDirectDamage(penPlayer, penPlayer, (DamageType)iType, fDamage, vHit, vDir);
+    return TRUE;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return FALSE;
+  }
+};
+
+// EReceiveScore of the game's entities (Global.es event 14: points), made here as CTriggerEvent is (Movers.cpp): what a
+// dying monster sends its killer; Player.es adds it to the level's and the game's score.
+class CReceiveScoreEvent : public CEntityEvent {
+public:
+  INDEX iPoints;
+  CReceiveScoreEvent(void) : CEntityEvent(0x0000000E), iPoints(0) {};
+  CEntityEvent *MakeCopy(void) { return new CReceiveScoreEvent(*this); };
+};
+
+static BOOL SendEventSEH(CEntity *pen, const CEntityEvent &ee) {
+  __try {
+    pen->SendEvent(ee);
+    return TRUE;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return FALSE;
+  }
+};
+
+static void GiveScore(CEntity *penPlayer, INDEX ctPoints) {
+  CReceiveScoreEvent ee;
+  ee.iPoints = ctPoints;
+  SendEventSEH(penPlayer, ee);
+};
+
+// Put where an ender pearl landed, still and facing as before.
+static BOOL SafeTeleport(CEntity *pen, const FLOAT3D &vAt) {
+  __try {
+    CPlacement3D pl = pen->GetPlacement();
+    pl.pl_PositionVector = vAt;
+    pen->Teleport(pl, FALSE);
     return TRUE;
   } __except (EXCEPTION_EXECUTE_HANDLER) {
     return FALSE;
@@ -706,6 +836,32 @@ static void Handle(const std::string &strMsg) {
     json::GetBool(strMsg, "eyes", bEyes);
     json::GetNumbers(strMsg, "flow", adFlow, 3);
     swim::OnFluid((FLOAT)dWater, (FLOAT)dLava, bEyes, FLOAT3D((FLOAT)adFlow[0], (FLOAT)adFlow[1], (FLOAT)adFlow[2]));
+
+  } else if (strType == "teleport") {
+    // a Minecraft ender pearl landed: the player is there (and the landing hurts, as in Minecraft)
+    double adP[3] = { 0, 0, 0 }, dDamage = 0;
+    if (json::GetNumbers(strMsg, "p", adP, 3) == 3) {
+      json::GetNumber(strMsg, "d", dDamage);
+      _vTeleport = FLOAT3D((FLOAT)adP[0], (FLOAT)adP[1], (FLOAT)adP[2]);
+      _bTeleport = TRUE;
+      if (dDamage > 0 && _aHurts.size() < 64) {
+        Hurt h;
+        h.fDamage = (FLOAT)dDamage;
+        h.vFrom = _vTeleport + FLOAT3D(0, 1, 0);
+        h.iType = DMT_IMPACT;
+        _aHurts.push_back(h);
+      }
+    }
+
+  } else if (strType == "kill") {
+    // Sam killed a Minecraft mob: it counts in Sam's score, as his own monsters do
+    double dScore = 0;
+    std::string strKind;
+    json::GetString(strMsg, "kind", strKind);
+    if (json::GetNumber(strMsg, "score", dScore) && dScore > 0) {
+      _ctScoreDue += (INDEX)dScore;
+      CPrintF("[SemCraft2] Minecraft %s killed: +%d score\n", strKind.c_str(), (INDEX)dScore);
+    }
 
   } else if (strType == "shove") {
     double adD[3] = { 0, 0, 0 };
@@ -811,6 +967,23 @@ void OnStep(void) {
       }
     }
 
+    // and its ender pearls take him where they land
+    if (_bTeleport && !_bHurtBroken) {
+      _bTeleport = FALSE;
+      if (!SafeTeleport(penPlayer, _vTeleport)) {
+        _bHurtBroken = TRUE;
+        CPrintF("^cff0000[SemCraft2]^r moving the player crashed inside the game; Minecraft damage is off for this session\n");
+      } else {
+        CPrintF("[SemCraft2] ender pearl: to (%.1f, %.1f, %.1f)\n", _vTeleport(1), _vTeleport(2), _vTeleport(3));
+      }
+    }
+
+    // and killing its mobs scores
+    if (_ctScoreDue > 0) {
+      GiveScore(penPlayer, _ctScoreDue);
+      _ctScoreDue = 0;
+    }
+
     // and its pistons move him
     FLOAT3D vShove(0, 0, 0);
     while (!_avShoves.empty()) {
@@ -825,6 +998,7 @@ void OnStep(void) {
     _aHurts.clear();
     _avPushes.clear();
     _avShoves.clear();
+    _bTeleport = FALSE;
   }
 
   // Sam's guns hurt Minecraft's mobs
@@ -845,18 +1019,36 @@ void OnStep(void) {
   // and Minecraft's blocks are solid here
   if (GetGameAPI()->IsGameOn() && !(sc_iDisable & 32)) blocks::Step();
 
-  // the player's state, 5 times a second
+  // a serious bomb went off (TSE): its blast reaches Minecraft's monsters too
+  static INDEX _ctBombsLast = -1;
+  const INDEX ctBombs = penPlayer != NULL ? PlayerIndex(penPlayer, PROP_SERIOUSBOMBS, -1) : -1;
+  if (ctBombs >= 0 && _ctBombsLast >= 0 && ctBombs < _ctBombsLast && link::Connected()) {
+    const FLOAT3D v = penPlayer->GetPlacement().pl_PositionVector;
+    char str[128];
+    _snprintf(str, sizeof(str), "{\"t\":\"seriousbomb\",\"p\":[%.2f,%.2f,%.2f]}", v(1), v(2), v(3));
+    Send(str);
+    CPrintF("[SemCraft2] serious bomb: Minecraft's monsters around get it too\n");
+  }
+  _ctBombsLast = ctBombs;
+
+  // the player's state, 5 times a second: health (hearts, more than ten above the level's top health), armour, powerups
   if (_ctTicks % 4 == 0 && link::Connected()) {
-    FLOAT fHealth = 0;
+    FLOAT fHealth = 0, fTop = 100.0f, fArmor = 0;
     BOOL bAlive = FALSE;
+    FLOAT afPowerups[4] = { 0, 0, 0, 0 };
     if (penPlayer != NULL) {
       fHealth = ((CLiveEntity *)penPlayer)->en_fHealth;
       bAlive = fHealth > 0;
+      fTop = PlayerFloat(penPlayer, PROP_TOPHEALTH, 100.0f);
+      fArmor = PlayerFloat(penPlayer, PROP_ARMOR, 0.0f);
+      for (INDEX i = 0; i < 4; i++) afPowerups[i] = PowerupLeft(penPlayer, i);
     }
 
-    char str[160];
-    _snprintf(str, sizeof(str), "{\"t\":\"state\",\"hp\":%.2f,\"alive\":%s,\"inGame\":%s,\"build\":%s}",
-      fHealth, bAlive ? "true" : "false", GetGameAPI()->IsGameOn() ? "true" : "false", _bBuild ? "true" : "false");
+    char str[320];
+    _snprintf(str, sizeof(str), "{\"t\":\"state\",\"hp\":%.2f,\"top\":%.1f,\"armor\":%.1f,\"pw\":[%.1f,%.1f,%.1f,%.1f],\"alive\":%s,"
+      "\"inGame\":%s,\"build\":%s}",
+      fHealth, fTop, fArmor, afPowerups[0], afPowerups[1], afPowerups[2], afPowerups[3], bAlive ? "true" : "false",
+      GetGameAPI()->IsGameOn() ? "true" : "false", _bBuild ? "true" : "false");
     Send(str);
   }
 };

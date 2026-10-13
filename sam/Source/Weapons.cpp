@@ -1,6 +1,7 @@
 /* SemCraft 2 - Serious Sam's weapons in Minecraft. See Weapons.h. */
 #include "StdH.h"
 #include "Weapons.h"
+#include "Bridge.h"
 
 #include <vector>
 #include <stdio.h>
@@ -79,7 +80,11 @@ void Reset(void) {
   _aTracked.clear();
 };
 
+// Serious Damage (TSE powerup): Sam's weapons hit four times as hard while it lasts, Minecraft's mobs and blocks too
+static FLOAT _fDamageFactor = 1.0f;
+
 static void SendShot(void (*pfnSend)(const std::string &), const FLOAT3D &vOrigin, const FLOAT3D &vDir, FLOAT fDamage, INDEX ctRays, FLOAT fSpread) {
+  fDamage *= _fDamageFactor;
   char str[256];
   _snprintf(str, sizeof(str), "{\"t\":\"shot\",\"o\":[%.3f,%.3f,%.3f],\"d\":[%.4f,%.4f,%.4f],\"dmg\":%.1f,\"n\":%d,\"spread\":%.2f}",
     vOrigin(1), vOrigin(2), vOrigin(3), vDir(1), vDir(2), vDir(3), fDamage, ctRays, fSpread);
@@ -91,7 +96,8 @@ static void SendShot(void (*pfnSend)(const std::string &), const FLOAT3D &vOrigi
 static void SendBoom(void (*pfnSend)(const std::string &), const Tracked &t) {
   char str[256];
   _snprintf(str, sizeof(str), "{\"t\":\"boom\",\"p\":[%.3f,%.3f,%.3f],\"r\":%.1f,\"dmg\":%.1f,\"break\":%s,\"src\":\"%s\"}",
-    t.vLast(1), t.vLast(2), t.vLast(3), t.fRadius, t.fDamage, t.bBreak ? "true" : "false", t.strKind);
+    t.vLast(1), t.vLast(2), t.vLast(3), t.fRadius, t.fDamage * (strcmp(t.strKind, "monster") == 0 ? 1.0f : _fDamageFactor),
+    t.bBreak ? "true" : "false", t.strKind);
   str[sizeof(str) - 1] = 0;
   pfnSend(str);
   _ctBooms++;
@@ -196,6 +202,7 @@ void Step(CEntity *penPlayer, void (*pfnSend)(const std::string &)) {
 
   CEntity *penWeapons = PropEntity(penPlayer, PROP(CLASS_PLAYER, 16));
   if (penWeapons == NULL) return;
+  _fDamageFactor = bridge::PowerupLeft(penPlayer, bridge::PU_SERIOUSDAMAGE) > 0.0f ? 4.0f : 1.0f;
 
   // a new weapons entity (respawn, level change): start counting afresh
   if (penWeapons != _penLastWeapons) {
@@ -259,7 +266,7 @@ void Step(CEntity *penPlayer, void (*pfnSend)(const std::string &)) {
     const BOOL bSaw = iWeapon == W_CHAINSAW;
     char str[256];
     _snprintf(str, sizeof(str), "{\"t\":\"shot\",\"o\":[%.3f,%.3f,%.3f],\"d\":[%.4f,%.4f,%.4f],\"dmg\":%.1f,\"n\":3,\"spread\":15,\"range\":3}",
-      vEye(1), vEye(2), vEye(3), vDir(1), vDir(2), vDir(3), bSaw ? 10.0f : 50.0f);
+      vEye(1), vEye(2), vEye(3), vDir(1), vDir(2), vDir(3), (bSaw ? 10.0f : 50.0f) * _fDamageFactor);
     str[sizeof(str) - 1] = 0;
     pfnSend(str);
     _ctMeleeCooldown = bSaw ? 2 : 10;

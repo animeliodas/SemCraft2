@@ -57,8 +57,8 @@ abstract class CameraMixin {
 		LEFT.rotate(this.rotation, this.left);
 		this.matrixPropertiesDirty |= 3;
 		this.setPosition(p.x(), p.y(), p.z());
-		// first person: Steve himself is never drawn (the player model is Sam's)
-		this.detached = false;
+		// first person: Steve himself isn't drawn; Sam's view in third person: Steve is (Sam's own model is hidden then)
+		this.detached = p.thirdPerson();
 	}
 
 	@Inject(method = "calculateFov", at = @At("HEAD"), cancellable = true)

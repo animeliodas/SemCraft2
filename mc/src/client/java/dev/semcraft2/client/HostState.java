@@ -13,11 +13,13 @@ public final class HostState {
 	 * @param x Minecraft camera position; yaw (0 = +z), pitch (+ = down), roll in degrees
 	 * @param vfov vertical field of view (degrees), aspect width / height, w/h Sam's picture in pixels
 	 * @param px Sam player's feet (Minecraft coordinates)
+	 * @param thirdPerson Sam's view is in third person: Steve is drawn there (bodyYaw/bodyPitch: where he looks)
 	 */
 	public record Pose(
 		long hostFrame, float sx, float sy, float sz, float sheading, float spitch, float sbank,
 		double x, double y, double z, float yaw, float pitch, float roll,
-		float vfov, float aspect, int w, int h, double px, double py, double pz, long receivedNanos
+		float vfov, float aspect, int w, int h, double px, double py, double pz, long receivedNanos,
+		boolean thirdPerson, float bodyYaw, float bodyPitch
 	) {
 	}
 
@@ -42,13 +44,15 @@ public final class HostState {
 			return;
 		}
 
+		JsonArray pr = m.has("pr") ? m.getAsJsonArray("pr") : null;
+		float lookH = pr != null ? pr.get(0).getAsFloat() : h, lookP = pr != null ? pr.get(1).getAsFloat() : pi;
 		latest = new Pose(
 			m.has("f") ? m.get("f").getAsLong() : 0L, sx, sy, sz, h, pi, b,
 			Mapping.mcX(sx), Mapping.mcY(sy), Mapping.mcZ(sz), Mapping.yaw(h), Mapping.pitch(pi), Mapping.roll(b),
 			vfov, aspect,
 			m.has("w") ? m.get("w").getAsInt() : 0, m.has("h") ? m.get("h").getAsInt() : 0,
 			Mapping.mcX(pl.get(0).getAsDouble()), Mapping.mcY(pl.get(1).getAsDouble()), Mapping.mcZ(pl.get(2).getAsDouble()),
-			System.nanoTime()
+			System.nanoTime(), m.has("tp") && m.get("tp").getAsBoolean(), Mapping.yaw(lookH), Mapping.pitch(lookP)
 		);
 		Pose pose = latest;
 		dev.semcraft2.WorldBridge.samFeet(pose.px(), pose.py(), pose.pz());

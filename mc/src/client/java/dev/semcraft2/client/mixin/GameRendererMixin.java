@@ -2,6 +2,7 @@ package dev.semcraft2.client.mixin;
 
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import dev.semcraft2.SemCraft;
+import dev.semcraft2.client.HostState;
 import dev.semcraft2.client.FrameExporter;
 import net.minecraft.client.renderer.GameRenderer;
 import org.spongepowered.asm.mixin.Final;
@@ -44,8 +45,9 @@ abstract class GameRendererMixin {
 
 	@Inject(method = "renderItemInHand", at = @At("HEAD"), cancellable = true)
 	private void semcraft2$handOnlyWhenBuilding(final CallbackInfo ci) {
-		if (SemCraft.active && !SemCraft.buildMode) {
-			ci.cancel();
+		HostState.Pose p = HostState.frame();
+		if (SemCraft.active && (!SemCraft.buildMode || p != null && p.thirdPerson())) {
+			ci.cancel(); // (in third person Steve holds it himself)
 		}
 	}
 }

@@ -66,7 +66,12 @@ public final class HostLink extends WebSocketServer {
 					SemCraft.LOG.info("Sam level: {}", message);
 					LevelShell.load(m.get("name").getAsString(), m.get("file").getAsString(), m.get("hash").getAsString());
 				}
-				case "state" -> WorldBridge.samState(m.get("hp").getAsFloat(), !m.has("alive") || m.get("alive").getAsBoolean());
+				case "state" -> {
+					WorldBridge.samState(m.get("hp").getAsFloat(), !m.has("alive") || m.get("alive").getAsBoolean());
+					dev.semcraft2.SamMechanics.state(m.has("top") ? m.get("top").getAsFloat() : 100.0F, m.has("armor") ? m.get("armor").getAsFloat() : 0.0F,
+						m.has("pw") ? toFloats(doubles(m.getAsJsonArray("pw"))) : null);
+				}
+				case "seriousbomb" -> dev.semcraft2.SamMechanics.seriousBomb(doubles(m.getAsJsonArray("p")));
 				case "cmd" -> WorldBridge.command(m.get("c").getAsString());
 				case "chat" -> WorldBridge.chat(m.get("m").getAsString());
 				case "firework" -> WorldBridge.firework();
@@ -83,7 +88,8 @@ public final class HostLink extends WebSocketServer {
 						hit instanceof net.minecraft.world.phys.BlockHitResult b ? String.format(Locale.ROOT, ",\"block\":[%d,%d,%d],\"state\":\"%s\"",
 							b.getBlockPos().getX(), b.getBlockPos().getY(), b.getBlockPos().getZ(),
 							mc.level == null ? "" : mc.level.getBlockState(b.getBlockPos()).toString()) : "");
-					conn.send(String.format(Locale.ROOT, "{\"t\":\"client\",\"build\":%b,\"attackDown\":%b,\"grabbed\":%b,\"destroying\":%b,\"screen\":\"%s\",\"gui\":[%d,%d],\"hotbar\":[%s],\"hit\":%s,\"slot\":%d,\"held\":\"%s\",\"eye\":[%.2f,%.2f,%.2f],\"rot\":[%.1f,%.1f]}",
+					conn.send(String.format(Locale.ROOT, "{\"t\":\"client\",\"armor\":%d,\"thirdPerson\":%b,\"build\":%b,\"attackDown\":%b,\"grabbed\":%b,\"destroying\":%b,\"screen\":\"%s\",\"gui\":[%d,%d],\"hotbar\":[%s],\"hit\":%s,\"slot\":%d,\"held\":\"%s\",\"eye\":[%.2f,%.2f,%.2f],\"rot\":[%.1f,%.1f]}",
+						mc.player == null ? -1 : mc.player.getArmorValue(), mc.gameRenderer.mainCamera().isDetached(),
 						SemCraft.buildMode, mc.options.keyAttack.isDown(), mc.mouseHandler.isMouseGrabbed(), mc.gameMode != null && mc.gameMode.isDestroying(),
 						mc.gui.screen() == null ? "" : mc.gui.screen().getClass().getSimpleName(), mc.getWindow().getGuiScaledWidth(),
 						mc.getWindow().getGuiScaledHeight(), hotbar(mc), target,
@@ -165,6 +171,15 @@ public final class HostLink extends WebSocketServer {
 	@Override
 	public void onError(final WebSocket conn, final Exception e) {
 		SemCraft.LOG.warn("Sam link error", e);
+	}
+
+	private static float[] toFloats(final double[] d) {
+		float[] f = new float[d.length];
+		for (int i = 0; i < d.length; i++) {
+			f[i] = (float) d[i];
+		}
+
+		return f;
 	}
 
 	private static double[] doubles(final JsonArray a) {

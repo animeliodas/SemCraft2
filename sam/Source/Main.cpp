@@ -393,6 +393,7 @@ static void SC_OnFrame(CDrawPort *pdp) {
 
 static void SC_OnPreDraw(CDrawPort *pdp) {
   _bViewDone = FALSE;
+  bridge::HideSamForSteve(TRUE);
 };
 
 static void SC_OnRenderView(CWorld &wo, CEntity *penViewer, CAnyProjection3D &apr, CDrawPort *pdp) {
@@ -436,6 +437,7 @@ static void DrawScreenCursor(CDrawPort *pdp) {
 };
 
 static void SC_OnPostDraw(CDrawPort *pdp) {
+  bridge::HideSamForSteve(FALSE);
   compositor::DrawOverlay();
   DrawScreenCursor(pdp);
   TakeShot(pdp);
@@ -501,6 +503,13 @@ static void SC_WorldLink(SHELL_FUNC_ARGS) {
     i++;
   }
   if (iTake >= 0) CPrintF("[SemCraft2] world link %d: no such link (%d)\n", iTake, i);
+};
+
+// Test hook: set the player's health, armour, serious bombs, powerups ("hp 150 armor 120 bombs 1 power 2 10").
+static void SC_SetPlayer(SHELL_FUNC_ARGS) {
+  BEGIN_SHELL_FUNC;
+  const CTString &strWhat = *NEXT_ARG(CTString *);
+  bridge::SetPlayerForTest(strWhat.str_String);
 };
 
 // Dev: reset Minecraft's world as entering a level would ("all" or "world").
@@ -576,6 +585,7 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_TriggerMover", "INDEX", &SC_TriggerMover);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Reset", "CTString", &SC_Reset);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_WorldLink", "INDEX", &SC_WorldLink);
+  ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_SetPlayer", "CTString", &SC_SetPlayer);
   ClassicsPlugins()->RegisterMethod(TRUE, "void", "sc_Chat", "CTString", &SC_Chat);
 
   const char *strDev = getenv("SEMCRAFT2_DEV");
@@ -586,6 +596,8 @@ CLASSICSPATCH_PLUGIN_STARTUP(HIniConfig props, PluginEvents_t &events) {
   _pShell->DeclareSymbol("persistent user FLOAT sc_fLightMatch;", &compositor::sc_fLightMatch);
   _pShell->DeclareSymbol("persistent user INDEX sc_iBlockBrushes;", &blocks::sc_iBlockBrushes);
   _pShell->DeclareSymbol("persistent user FLOAT sc_fCursorSpeed;", &bridge::sc_fCursorSpeed);
+  _pShell->DeclareSymbol("persistent user INDEX sc_iSteve;", &bridge::sc_iSteve);
+  _pShell->DeclareSymbol("user INDEX sc_iTestButtons;", &bridge::sc_iTestButtons);
   _pShell->DeclareSymbol("user INDEX sc_iTestJump;", &glide::sc_iTestJump);
   _pShell->DeclareSymbol("user INDEX sc_iGlideLog;", &glide::sc_iGlideLog);
   _pShell->DeclareSymbol("user INDEX sc_iDisable;", &bridge::sc_iDisable);

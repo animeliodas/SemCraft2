@@ -277,6 +277,7 @@ public final class Combat {
 				float f = (float) (1.0 - dist / radius);
 				e.damageCooldownTime = 0;
 				e.setInvulnerableTime(0);
+				SamMechanics.samHit(e);
 				e.hurtServer(level, level.damageSources().explosion(null, null), samDamage / Mapping.HP_SCALE * f);
 				Vec3 push = e.position().subtract(at).normalize().scale(1.2 * f);
 				e.push(push.x, 0.4 * f + push.y, push.z);

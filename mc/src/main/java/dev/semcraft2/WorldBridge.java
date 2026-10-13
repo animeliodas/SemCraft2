@@ -119,8 +119,9 @@ public final class WorldBridge {
 	public static String status() {
 		MinecraftServer s = server;
 		ServerPlayer p = s == null || s.getPlayerList().getPlayers().isEmpty() ? null : s.getPlayerList().getPlayers().get(0);
-		String player = p == null ? "null" : String.format(Locale.ROOT, "{\"mc\":[%.2f,%.2f,%.2f],\"sam\":[%.2f,%.2f,%.2f],\"health\":%.1f}",
-			p.getX(), p.getY(), p.getZ(), Mapping.samX(p.getX()), Mapping.samY(p.getY()), Mapping.samZ(p.getZ()), p.getHealth());
+		String player = p == null ? "null" : String.format(Locale.ROOT, "{\"mc\":[%.2f,%.2f,%.2f],\"sam\":[%.2f,%.2f,%.2f],\"health\":%.1f,\"maxHealth\":%.1f,\"effects\":\"%s\"}",
+			p.getX(), p.getY(), p.getZ(), Mapping.samX(p.getX()), Mapping.samY(p.getY()), Mapping.samZ(p.getZ()), p.getHealth(), p.getMaxHealth(),
+			p.getActiveEffects().stream().map(e -> e.getEffect().getRegisteredName() + "/" + e.getAmplifier()).reduce((a, b) -> a + " " + b).orElse(""));
 		long mobs = 0;
 		if (s != null) {
 			for (net.minecraft.world.entity.Entity e : s.overworld().getAllEntities()) {
@@ -130,8 +131,9 @@ public final class WorldBridge {
 			}
 		}
 
-		return String.format(Locale.ROOT, "{\"t\":\"status\",\"active\":%b,\"build\":%b,\"samHp\":%.1f,\"player\":%s,\"mobs\":%d,\"samMonsters\":%d,\"shell\":%s,\"movers\":%s,\"reset\":%s}",
-			SemCraft.active, SemCraft.buildMode, samHp, player, mobs, SamMonsters.count(), LevelShell.status(), Movers.status(), WorldReset.status());
+		return String.format(Locale.ROOT, "{\"t\":\"status\",\"active\":%b,\"build\":%b,\"samHp\":%.1f,\"player\":%s,\"mobs\":%d,\"samMonsters\":%d,\"shell\":%s,\"movers\":%s,\"reset\":%s,\"sam\":%s}",
+			SemCraft.active, SemCraft.buildMode, samHp, player, mobs, SamMonsters.count(), LevelShell.status(), Movers.status(), WorldReset.status(),
+			SamMechanics.status());
 	}
 
 	/** Where Sam's player stands (Minecraft coordinates), from the camera messages; null until the first one. */
@@ -184,6 +186,7 @@ public final class WorldBridge {
 			ServerPlayer player = s.getPlayerList().getPlayers().get(0);
 			followSam(player);
 			mirrorHealth(player);
+			SamMechanics.applyPowerups(player, s.overworld().getGameTime());
 		}
 
 		gear(s);
@@ -374,8 +377,12 @@ public final class WorldBridge {
 		});
 	}
 
-	/** Minecraft's hearts show Sam's health (100 Sam = 20 Minecraft), never letting the stand-in die. */
+	/**
+	 * Minecraft's hearts show Sam's health (100 Sam = 20 Minecraft = ten hearts; more hearts above his level's top
+	 * health, see SamMechanics), never letting the stand-in die.
+	 */
 	private static void mirrorHealth(final ServerPlayer player) {
+		SamMechanics.applyMaxHealth(player, samHp);
 		float want = Math.clamp(samHp / Mapping.HP_SCALE, 1.0F, player.getMaxHealth());
 		if (!samAlive) {
 			want = 1.0F;
