@@ -34,11 +34,15 @@ hotbar keys act on.
 ### Link messages
 Sam → MC
 - `{"t":"hello","v":1,"game":"TFE"|"TSE","pid":N}` once per connection.
-- `{"t":"cam","f":frame,"p":[x,y,z],"r":[heading,pitch,bank],"vfov":deg,"aspect":w/h,"w":px,"h":px,"near":m}`
-  once per rendered game frame (Sam coords of the camera actually rendered).
+- `{"t":"cam","f":frame,"p":[x,y,z],"r":[heading,pitch,bank],"vfov":deg,"aspect":w/h,"w":px,"h":px,"near":m,
+  "pl":[x,y,z],"tp":b,"pr":[heading,pitch]}` once per rendered game frame (Sam coords of the camera actually rendered;
+  the player's feet; third person view: MC draws Steve at the feet looking along `pr`, Sam hides his own model).
 - `{"t":"level","name":"Levels\\X.wld","file":"C:\\...\\level_<hash>.tri","hash":"<hex>","tris":N}` after a world
   loads (and again on reconnect).
-- `{"t":"state","hp":f,"armor":f,"alive":b,"inGame":b,"build":b}` 5 times a second.
+- `{"t":"state","hp":f,"top":f,"armor":f,"pw":[invis,invul,damage,speed],"alive":b,"inGame":b,"build":b}` 5 times
+  a second: health, the level's top health (100; 200 on Tourist/Easy: MC shows max(top, hp)/5 hearts), armour (the
+  armour bar, client only), TSE powerups' seconds left (MC effects on the stand-in).
+- `{"t":"seriousbomb","p":[x,y,z]}` a TSE serious bomb went off: MC's monsters within 96 blocks die too.
 - `{"t":"key","k":"attack"|"use"|"pick"|"drop","down":b}`, `{"t":"slot","n":0..8}`, `{"t":"scroll","d":±1}`.
 - `{"t":"build","on":b}` build mode (mouse and number keys go to MC).
 - `{"t":"shot","o":[x,y,z],"d":[x,y,z],"dmg":f,"n":rays,"spread":deg[,"range":m]}` Sam hitscan fire (knife and
@@ -84,6 +88,10 @@ MC → Sam
 - `{"t":"shove","d":[x,y,z],"by":"piston"}` a piston moved the player this far (metres; ≤0.51 per axis per tick):
   Sam moves him as much.
 - `{"t":"actorpush","id":N,"d":[x,y,z]}` a piston moved a Sam monster's proxy: Sam moves the monster.
+- `{"t":"teleport","p":[x,y,z],"d":samHp,"by":"ender_pearl"}` an ender pearl the player threw landed: Sam's player
+  goes there and takes the damage.
+- `{"t":"kill","kind":"zombie","score":n}` Sam killed a MC mob (his weapons, his blows, his explosions): Sam's
+  player gets the score (`EReceiveScore`).
 - `{"t":"log","m":"..."}` diagnostics printed to Sam's console.
 
 ### Frame shared memory `Local\SemCraft2Frame` (little-endian)

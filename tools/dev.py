@@ -92,7 +92,7 @@ def start_sam(name: str, level: str | None) -> None:
     if log.exists():
         log.unlink()
 
-    env = dict(os.environ, SEMCRAFT2_DEV="1")
+    env = dict(os.environ, SEMCRAFT2_DEV="1", SERIOUSBRIDGE_DEV="1")  # (SeriousBridge plugins read their own commands file)
     args = [str(exe)]
     if level and level.startswith("+"):
         # "+name": the level from the command line (StartMap from the menu hangs some levels, e.g. 11_AlleyOfSphinxes)
